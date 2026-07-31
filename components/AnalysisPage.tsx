@@ -25,13 +25,11 @@ export default function AnalysisPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState('')
   const [toast, setToast] = useState('')
-  const [chartStart, setChartStart] = useState('')
-  const [chartEnd, setChartEnd] = useState('')
+  const [filterStart, setFilterStart] = useState('')
+  const [filterEnd, setFilterEnd] = useState('')
   const [tooltip, setTooltip] = useState<{ x: number; y: number; entry: DailyEntry | null; date: string } | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Password modal state
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [showPwModal, setShowPwModal] = useState(false)
   const [modalPw, setModalPw] = useState('')
@@ -51,7 +49,6 @@ export default function AnalysisPage() {
     toastTimer.current = setTimeout(() => setToast(''), 2200)
   }
 
-  // Derived data
   const allDates = [...new Set(daily.map(d => d.date))].sort()
 
   function getTotalOrders(pid: string) {
@@ -65,19 +62,25 @@ export default function AnalysisPage() {
   const currentProduct = products.find(p => p.id === currentPid)
   const productDaily = daily.filter(d => d.product_id === currentPid).sort((a, b) => a.date.localeCompare(b.date))
   const productMonths = [...new Set(productDaily.map(d => d.date.substring(0, 7)))].sort()
+  const productDates = productDaily.map(d => d.date)
+  const minDate = productDates[0] || ''
+  const maxDate = productDates[productDates.length - 1] || ''
 
   function selectProduct(pid: string) {
     setCurrentPid(pid)
     const dates = daily.filter(d => d.product_id === pid).map(d => d.date).sort()
-    setChartStart(dates[0] || '')
-    setChartEnd(dates[dates.length - 1] || '')
+    setFilterStart(dates[0] || '')
+    setFilterEnd(dates[dates.length - 1] || '')
   }
 
-  function getMonthly(month: string) {
-    const entries = productDaily.filter(d => d.date.startsWith(month))
+  // Filtered entries (shared by summary + chart)
+  const filteredDaily = productDaily.filter(d => d.date >= filterStart && d.date <= filterEnd)
+
+  // Aggregate filtered range
+  function getAggregate() {
     const priceMap: Record<string, PriceDetail> = {}
     let totalOrders = 0, totalUnits = 0, totalOrganic = 0, totalPaid = 0
-    for (const e of entries) {
+    for (const e of filteredDaily) {
       totalOrders += e.total_orders; totalUnits += e.total_units
       totalOrganic += e.organic_orders; totalPaid += e.paid_orders
       for (const [price, pd] of Object.entries(e.prices)) {
@@ -89,24 +92,31 @@ export default function AnalysisPage() {
     return { totalOrders, totalUnits, totalOrganic, totalPaid, prices: priceMap }
   }
 
+  function setRange(type: string) {
+    const dates = productDates
+    const last = dates[dates.length - 1]
+    if (type === 'all') { setFilterStart(dates[0]); setFilterEnd(last) }
+    else if (type === '7d')  { setFilterStart(dates[Math.max(0, dates.length - 7)]);  setFilterEnd(last) }
+    else if (type === '14d') { setFilterStart(dates[Math.max(0, dates.length - 14)]); setFilterEnd(last) }
+    else if (type === '30d') { setFilterStart(dates[Math.max(0, dates.length - 30)]); setFilterEnd(last) }
+    else {
+      const [yr, mo] = type.split('-')
+      setFilterStart(`${yr}-${mo}-01`)
+      setFilterEnd(`${yr}-${mo}-${new Date(+yr, +mo, 0).getDate()}`)
+    }
+  }
+
   // File upload
   function handleFile(file: File) {
-    if (!authed) {
-      setPendingFile(file)
-      setShowPwModal(true)
-    } else {
-      doUpload(file, password)
-    }
+    if (!authed) { setPendingFile(file); setShowPwModal(true) }
+    else doUpload(file, password)
   }
 
   async function confirmUpload() {
     if (!modalPw || !pendingFile) return
-    setShowPwModal(false)
-    setAuthed(true)
-    setPassword(modalPw)
+    setShowPwModal(false); setAuthed(true); setPassword(modalPw)
     await doUpload(pendingFile, modalPw)
-    setModalPw('')
-    setPendingFile(null)
+    setModalPw(''); setPendingFile(null)
   }
 
   async function doUpload(file: File, pw: string) {
@@ -115,32 +125,13 @@ export default function AnalysisPage() {
     const res = await fetch('/api/upload', { method: 'POST', headers: { 'x-upload-password': pw }, body: fd })
     const d = await res.json()
     setUploading(false)
-    if (d.ok) {
-      setUploadMsg(`✓ 已导入 ${d.imported} 条，跳过 ${d.skipped} 条`)
-      fetchData(); showToast('上传成功')
-    } else if (res.status === 401) {
-      showToast('密码错误')
-    } else {
-      showToast(d.error || '上传失败')
-    }
+    if (d.ok) { setUploadMsg(`✓ 已导入 ${d.imported} 条`); fetchData(); showToast('上传成功') }
+    else if (res.status === 401) showToast('密码错误')
+    else showToast(d.error || '上传失败')
   }
 
-  // Chart range
-  function setRange(type: string) {
-    const dates = productDaily.map(d => d.date).sort()
-    const last = dates[dates.length - 1]
-    if (type === 'all') { setChartStart(dates[0]); setChartEnd(last) }
-    else if (type === '7d')  { setChartStart(dates[Math.max(0, dates.length - 7)]);  setChartEnd(last) }
-    else if (type === '14d') { setChartStart(dates[Math.max(0, dates.length - 14)]); setChartEnd(last) }
-    else if (type === '30d') { setChartStart(dates[Math.max(0, dates.length - 30)]); setChartEnd(last) }
-    else {
-      const [yr, mo] = type.split('-')
-      setChartStart(`${yr}-${mo}-01`)
-      setChartEnd(`${yr}-${mo}-${new Date(+yr, +mo, 0).getDate()}`)
-    }
-  }
-
-  const filteredDates = productDaily.filter(d => d.date >= chartStart && d.date <= chartEnd).map(d => d.date)
+  // Chart
+  const filteredDates = filteredDaily.map(d => d.date)
   const filteredEntries = filteredDates.map(date => productDaily.find(d => d.date === date) || null)
 
   const drawChart = useCallback(() => {
@@ -148,14 +139,13 @@ export default function AnalysisPage() {
     if (!canvas) return
     const parent = canvas.parentElement!
     const dpr = window.devicePixelRatio || 1
-    const W = parent.clientWidth - 40, H = 260
+    const W = parent.clientWidth - 40, H = 220
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px'
     canvas.width = W * dpr; canvas.height = H * dpr
     const ctx = canvas.getContext('2d')!
     ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H)
 
-    const dates = filteredDates
-    const entries = filteredEntries
+    const dates = filteredDates, entries = filteredEntries
     if (!dates.length) {
       ctx.fillStyle = '#444870'; ctx.font = '13px -apple-system,sans-serif'
       ctx.textAlign = 'center'; ctx.fillText('该时间段内无数据', W / 2, H / 2); return
@@ -174,13 +164,9 @@ export default function AnalysisPage() {
       ctx.fillStyle = '#444870'; ctx.font = '10px -apple-system,sans-serif'; ctx.textAlign = 'right'
       ctx.fillText(String(Math.round(maxVal * (1 - i / 4))), padL - 6, y + 4)
     }
-
     const step = Math.max(1, Math.floor(dates.length / 8))
     ctx.fillStyle = '#444870'; ctx.font = '10px -apple-system,sans-serif'; ctx.textAlign = 'center'
-    dates.forEach((d, i) => {
-      if (i % step === 0 || i === dates.length - 1)
-        ctx.fillText(d.substring(5), padL + (i / (dates.length - 1 || 1)) * chartW, H - padB + 16)
-    })
+    dates.forEach((d, i) => { if (i % step === 0 || i === dates.length - 1) ctx.fillText(d.substring(5), padL + (i / (dates.length - 1 || 1)) * chartW, H - padB + 16) })
 
     const xPos = (i: number) => padL + (i / (dates.length - 1 || 1)) * chartW
     const yPos = (v: number) => padT + chartH - (v / maxVal) * chartH
@@ -190,19 +176,16 @@ export default function AnalysisPage() {
       vals.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v)))
       ctx.lineTo(xPos(vals.length - 1), padT + chartH); ctx.lineTo(xPos(0), padT + chartH); ctx.closePath()
       const g = ctx.createLinearGradient(0, padT, 0, padT + chartH)
-      g.addColorStop(0, c1); g.addColorStop(1, c2)
-      ctx.fillStyle = g; ctx.fill()
+      g.addColorStop(0, c1); g.addColorStop(1, c2); ctx.fillStyle = g; ctx.fill()
     }
     drawArea(values,  'rgba(108,99,255,0.20)', 'rgba(108,99,255,0)')
     drawArea(organic, 'rgba(62,207,142,0.12)', 'rgba(62,207,142,0)')
 
     const drawLine = (vals: number[], color: string, width: number) => {
       ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'
-      vals.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v)))
-      ctx.stroke()
+      vals.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v))); ctx.stroke()
     }
-    drawLine(values,  '#6c63ff', 2)
-    drawLine(organic, '#3ecf8e', 1.5)
+    drawLine(values, '#6c63ff', 2); drawLine(organic, '#3ecf8e', 1.5)
 
     ctx.font = '11px -apple-system,sans-serif'; ctx.textAlign = 'left'
     ctx.fillStyle = '#6c63ff'; ctx.fillRect(padL, 6, 14, 2.5)
@@ -211,26 +194,27 @@ export default function AnalysisPage() {
     ctx.fillStyle = '#7e849e'; ctx.fillText('自然流', padL + 86, 11)
 
     canvas.dataset.padL = String(padL); canvas.dataset.padR = String(padR)
-    canvas.dataset.chartW = String(chartW); canvas.dataset.W = String(W)
-    canvas.dataset.len = String(dates.length)
+    canvas.dataset.chartW = String(chartW); canvas.dataset.W = String(W); canvas.dataset.len = String(dates.length)
   }, [filteredDates, filteredEntries])
 
-  useEffect(() => { if (currentPid) drawChart() }, [currentPid, chartStart, chartEnd, drawChart])
+  useEffect(() => { if (currentPid) drawChart() }, [currentPid, filterStart, filterEnd, drawChart])
   useEffect(() => { window.addEventListener('resize', drawChart); return () => window.removeEventListener('resize', drawChart) }, [drawChart])
 
   function handleCanvasMove(e: React.MouseEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current!
     const rect = canvas.getBoundingClientRect()
     const mx = e.clientX - rect.left
-    const padL = parseFloat(canvas.dataset.padL || '52')
-    const padR = parseFloat(canvas.dataset.padR || '16')
-    const chartW = parseFloat(canvas.dataset.chartW || '0')
-    const W = parseFloat(canvas.dataset.W || '0')
+    const padL = parseFloat(canvas.dataset.padL || '52'), padR = parseFloat(canvas.dataset.padR || '16')
+    const chartW = parseFloat(canvas.dataset.chartW || '0'), W = parseFloat(canvas.dataset.W || '0')
     const len = parseInt(canvas.dataset.len || '0')
     if (mx < padL || mx > W - padR || len === 0) { setTooltip(null); return }
     const idx = Math.min(len - 1, Math.max(0, Math.round((mx - padL) / chartW * (len - 1))))
     setTooltip({ x: e.clientX, y: e.clientY, entry: filteredEntries[idx] || null, date: filteredDates[idx] })
   }
+
+  const agg = currentPid ? getAggregate() : null
+  const orgPct  = agg && agg.totalOrders ? Math.round(agg.totalOrganic / agg.totalOrders * 100) : 0
+  const paidPct = agg && agg.totalOrders ? Math.round(agg.totalPaid / agg.totalOrders * 100) : 0
 
   return (
     <div className="flex" style={{ height: 'calc(100vh - 52px)' }}>
@@ -241,20 +225,14 @@ export default function AnalysisPage() {
           <div className="bg-[#1c1f2e] border border-[#2a2d45] rounded-xl p-6 w-80 shadow-2xl">
             <div className="text-sm font-semibold text-[#dde1f0] mb-1">输入上传密码</div>
             <div className="text-xs text-[#7e849e] mb-4">验证后即可上传订单文件</div>
-            <input
-              type="password"
-              placeholder="密码"
-              value={modalPw}
-              autoFocus
+            <input type="password" placeholder="密码" value={modalPw} autoFocus
               onChange={e => setModalPw(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && confirmUpload()}
-              className="w-full bg-[#13151f] border border-[#2a2d45] rounded-lg px-3 py-2 text-sm text-[#dde1f0] outline-none focus:border-[#6c63ff] mb-3"
-            />
+              className="w-full bg-[#13151f] border border-[#2a2d45] rounded-lg px-3 py-2 text-sm text-[#dde1f0] outline-none focus:border-[#6c63ff] mb-3" />
             <div className="flex gap-2 justify-end">
               <button onClick={() => { setShowPwModal(false); setModalPw(''); setPendingFile(null) }}
                 className="px-3 py-1.5 text-xs rounded-lg border border-[#2a2d45] text-[#7e849e]">取消</button>
-              <button onClick={confirmUpload}
-                className="px-4 py-1.5 text-xs rounded-lg bg-[#6c63ff] text-white">确认上传</button>
+              <button onClick={confirmUpload} className="px-4 py-1.5 text-xs rounded-lg bg-[#6c63ff] text-white">确认上传</button>
             </div>
           </div>
         </div>
@@ -267,7 +245,6 @@ export default function AnalysisPage() {
           <input className="w-full bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-[#6c63ff] text-[#dde1f0] placeholder-[#444870]"
             placeholder="搜索..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-
         <label className={`mx-3 mt-3 mb-1 flex flex-col items-center justify-center p-3 rounded-lg border border-dashed border-[#363a58] cursor-pointer text-center transition-all ${uploading ? 'opacity-50' : 'hover:border-[#6c63ff]'}`}>
           <input type="file" accept=".xlsx,.xls" className="hidden" disabled={uploading}
             onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
@@ -277,7 +254,6 @@ export default function AnalysisPage() {
           </span>
         </label>
         {uploadMsg && <div className="mx-3 text-[10px] text-[#3ecf8e] leading-snug mb-1">{uploadMsg}</div>}
-
         <div className="flex-1 overflow-y-auto">
           {sortedProducts.map(p => (
             <div key={p.id} onClick={() => selectProduct(p.id)}
@@ -298,104 +274,90 @@ export default function AnalysisPage() {
           </div>
         ) : (
           <>
-            <div className="mb-6">
+            {/* Header */}
+            <div className="mb-5">
               <div className="text-[22px] font-bold tracking-tight">{displayName(currentProduct)}</div>
               <div className="text-[11px] font-mono text-[#444870] mt-1">{currentPid}</div>
             </div>
 
-            <div className="mb-8">
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-[11px] font-semibold text-[#444870] uppercase tracking-widest">月度汇总</span>
-                <div className="flex-1 h-px bg-[#2a2d45]" />
+            {/* Unified time filter */}
+            <div className="flex items-center gap-2 flex-wrap mb-6 p-3 bg-[#13151f] border border-[#2a2d45] rounded-xl">
+              {['7d','14d','30d'].map(t => (
+                <button key={t} onClick={() => setRange(t)} className="px-2.5 py-1 text-xs rounded-md border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">近{t.replace('d','天')}</button>
+              ))}
+              {productMonths.map(m => (
+                <button key={m} onClick={() => setRange(m)} className="px-2.5 py-1 text-xs rounded-md border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">{m}</button>
+              ))}
+              <button onClick={() => setRange('all')} className="px-2.5 py-1 text-xs rounded-md border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">全部</button>
+              <div className="ml-auto flex items-center gap-2 text-xs text-[#444870]">
+                <span>从</span>
+                <input type="date" value={filterStart} min={minDate} max={maxDate} onChange={e => setFilterStart(e.target.value)}
+                  className="bg-[#1c1f2e] border border-[#2a2d45] rounded-md px-2 py-1 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]" style={{colorScheme:'dark'}} />
+                <span>至</span>
+                <input type="date" value={filterEnd} min={minDate} max={maxDate} onChange={e => setFilterEnd(e.target.value)}
+                  className="bg-[#1c1f2e] border border-[#2a2d45] rounded-md px-2 py-1 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]" style={{colorScheme:'dark'}} />
               </div>
-              <div className="flex gap-3 flex-wrap mb-4">
-                {productMonths.map(m => {
-                  const md = getMonthly(m)
-                  const orgPct = md.totalOrders ? Math.round(md.totalOrganic / md.totalOrders * 100) : 0
-                  const paidPct = md.totalOrders ? Math.round(md.totalPaid / md.totalOrders * 100) : 0
-                  return (
-                    <div key={m} className="bg-[#13151f] border border-[#2a2d45] rounded-xl p-4 min-w-[170px] flex-1">
-                      <div className="text-xs text-[#444870] font-semibold mb-2.5">{m}</div>
-                      {[
-                        ['总订单', md.totalOrders.toLocaleString(), ''],
-                        ['总件数', md.totalUnits.toLocaleString(), ''],
-                        ['自然流', `${md.totalOrganic.toLocaleString()}`, `${orgPct}%`],
-                        ['广告流', `${md.totalPaid.toLocaleString()}`, `${paidPct}%`],
-                      ].map(([k, v, sub]) => (
-                        <div key={k} className="flex justify-between items-baseline mb-1.5">
-                          <span className="text-xs text-[#7e849e]">{k}</span>
-                          <span className={`text-sm font-semibold ${k==='自然流'?'text-[#3ecf8e]':k==='广告流'?'text-[#f5a623]':''}`}>
-                            {v} {sub && <span className="text-[11px] text-[#444870]">{sub}</span>}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
-
-              {productMonths.map(m => {
-                const md = getMonthly(m)
-                const sorted = Object.entries(md.prices).sort((a, b) => b[1].orders - a[1].orders)
-                return (
-                  <div key={m} className="bg-[#13151f] border border-[#2a2d45] rounded-xl overflow-hidden mb-3">
-                    <div className="px-4 py-2.5 bg-[#1c1f2e] text-[11px] font-semibold text-[#444870] uppercase tracking-wider">{m} · 价格档明细</div>
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-[#1c1f2e]">
-                          {['价格','订单','件数','自然流','广告流','占比'].map(h => (
-                            <th key={h} className="px-4 py-2 text-left text-[11px] text-[#444870] font-semibold uppercase tracking-wider whitespace-nowrap">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sorted.map(([price, pd]) => {
-                          const pct = md.totalOrders ? Math.round(pd.orders / md.totalOrders * 100) : 0
-                          const orgP = pd.orders ? Math.round(pd.organic / pd.orders * 100) : 0
-                          return (
-                            <tr key={price} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
-                              <td className="px-4 py-2"><span className="bg-[rgba(108,99,255,0.15)] text-[#6c63ff] px-1.5 py-0.5 rounded text-[11px] font-semibold">${parseFloat(price).toFixed(2)}</span></td>
-                              <td className="px-4 py-2 tabular-nums">{pd.orders.toLocaleString()}</td>
-                              <td className="px-4 py-2 tabular-nums">{pd.units.toLocaleString()}</td>
-                              <td className="px-4 py-2 tabular-nums text-[#3ecf8e]">{pd.organic.toLocaleString()} <span className="text-[11px] text-[#444870]">{orgP}%</span></td>
-                              <td className="px-4 py-2 tabular-nums text-[#f5a623]">{pd.paid.toLocaleString()}</td>
-                              <td className="px-4 py-2 tabular-nums text-[11px] text-[#444870]">{pct}%</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              })}
+              <div className="text-[11px] text-[#444870]">{filteredDaily.length} 天</div>
             </div>
 
+            {/* Summary cards */}
+            {agg && (
+              <div className="grid grid-cols-4 gap-3 mb-6">
+                {[
+                  { label: '总订单', value: agg.totalOrders.toLocaleString(), sub: '', color: '' },
+                  { label: '总件数', value: agg.totalUnits.toLocaleString(), sub: '', color: '' },
+                  { label: '自然流', value: agg.totalOrganic.toLocaleString(), sub: `${orgPct}%`, color: 'text-[#3ecf8e]' },
+                  { label: '广告流', value: agg.totalPaid.toLocaleString(), sub: `${paidPct}%`, color: 'text-[#f5a623]' },
+                ].map(c => (
+                  <div key={c.label} className="bg-[#13151f] border border-[#2a2d45] rounded-xl p-4">
+                    <div className="text-[11px] text-[#444870] uppercase tracking-wider mb-2">{c.label}</div>
+                    <div className={`text-2xl font-bold tracking-tight ${c.color}`}>{c.value}</div>
+                    {c.sub && <div className="text-xs text-[#444870] mt-1">{c.sub}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Price table */}
+            {agg && Object.keys(agg.prices).length > 0 && (
+              <div className="bg-[#13151f] border border-[#2a2d45] rounded-xl overflow-hidden mb-6">
+                <div className="px-4 py-2.5 bg-[#1c1f2e] text-[11px] font-semibold text-[#444870] uppercase tracking-wider">价格档明细</div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-[#1c1f2e]">
+                      {['价格','订单','件数','自然流','广告流','占比'].map(h => (
+                        <th key={h} className="px-4 py-2 text-left text-[11px] text-[#444870] font-semibold uppercase tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(agg.prices).sort((a,b)=>b[1].orders-a[1].orders).map(([price, pd]) => {
+                      const pct  = agg.totalOrders ? Math.round(pd.orders / agg.totalOrders * 100) : 0
+                      const orgP = pd.orders ? Math.round(pd.organic / pd.orders * 100) : 0
+                      return (
+                        <tr key={price} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
+                          <td className="px-4 py-2"><span className="bg-[rgba(108,99,255,0.15)] text-[#6c63ff] px-1.5 py-0.5 rounded text-[11px] font-semibold">${parseFloat(price).toFixed(2)}</span></td>
+                          <td className="px-4 py-2 tabular-nums">{pd.orders.toLocaleString()}</td>
+                          <td className="px-4 py-2 tabular-nums">{pd.units.toLocaleString()}</td>
+                          <td className="px-4 py-2 tabular-nums text-[#3ecf8e]">{pd.organic.toLocaleString()} <span className="text-[11px] text-[#444870]">{orgP}%</span></td>
+                          <td className="px-4 py-2 tabular-nums text-[#f5a623]">{pd.paid.toLocaleString()}</td>
+                          <td className="px-4 py-2 tabular-nums text-[11px] text-[#444870]">{pct}%</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Chart */}
             <div className="mb-8">
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-3 mb-3">
                 <span className="text-[11px] font-semibold text-[#444870] uppercase tracking-widest">每日订单趋势</span>
                 <div className="flex-1 h-px bg-[#2a2d45]" />
               </div>
-              <div className="flex gap-2 flex-wrap items-center mb-3">
-                {['7d','14d','30d'].map(t => (
-                  <button key={t} onClick={() => setRange(t)} className="px-2.5 py-1 text-xs rounded-md border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">近{t.replace('d','天')}</button>
-                ))}
-                {productMonths.map(m => (
-                  <button key={m} onClick={() => setRange(m)} className="px-2.5 py-1 text-xs rounded-md border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">{m}</button>
-                ))}
-                <button onClick={() => setRange('all')} className="px-2.5 py-1 text-xs rounded-md border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">全部</button>
-                <div className="ml-auto flex items-center gap-2 text-xs text-[#444870]">
-                  <span>从</span>
-                  <input type="date" value={chartStart} onChange={e => setChartStart(e.target.value)}
-                    className="bg-[#1c1f2e] border border-[#2a2d45] rounded-md px-2 py-1 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]" style={{colorScheme:'dark'}} />
-                  <span>至</span>
-                  <input type="date" value={chartEnd} onChange={e => setChartEnd(e.target.value)}
-                    className="bg-[#1c1f2e] border border-[#2a2d45] rounded-md px-2 py-1 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]" style={{colorScheme:'dark'}} />
-                </div>
-              </div>
               <div className="bg-[#13151f] border border-[#2a2d45] rounded-xl p-5">
-                <canvas ref={canvasRef} height={260}
-                  onMouseMove={handleCanvasMove}
-                  onMouseLeave={() => setTooltip(null)} />
+                <canvas ref={canvasRef} height={220} onMouseMove={handleCanvasMove} onMouseLeave={() => setTooltip(null)} />
               </div>
             </div>
           </>
@@ -407,16 +369,11 @@ export default function AnalysisPage() {
         <div className="fixed z-50 pointer-events-none bg-[#242840] border border-[#363a58] rounded-xl p-3.5 shadow-2xl min-w-[200px]"
           style={{ left: tooltip.x + 14, top: Math.max(8, tooltip.y - 80) }}>
           <div className="text-xs font-bold text-[#dde1f0] mb-2 pb-2 border-b border-[#2a2d45]">{tooltip.date}</div>
-          {!tooltip.entry ? (
-            <div className="text-xs text-[#444870]">无订单</div>
-          ) : (
+          {!tooltip.entry ? <div className="text-xs text-[#444870]">无订单</div> : (
             <>
-              {[
-                ['总订单', String(tooltip.entry.total_orders), ''],
-                ['总件数', String(tooltip.entry.total_units), ''],
+              {[['总订单', String(tooltip.entry.total_orders), ''], ['总件数', String(tooltip.entry.total_units), ''],
                 ['自然流', String(tooltip.entry.organic_orders), `${Math.round(tooltip.entry.organic_orders/tooltip.entry.total_orders*100)}%`],
-                ['广告流', String(tooltip.entry.paid_orders), ''],
-              ].map(([k, v, sub]) => (
+                ['广告流', String(tooltip.entry.paid_orders), '']].map(([k, v, sub]) => (
                 <div key={k} className="flex justify-between text-xs mb-1">
                   <span className="text-[#7e849e]">{k}</span>
                   <span className={`font-semibold ${k==='自然流'?'text-[#3ecf8e]':k==='广告流'?'text-[#f5a623]':''}`}>
@@ -441,9 +398,7 @@ export default function AnalysisPage() {
         </div>
       )}
 
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-lg bg-[#242840] border border-[#363a58] text-sm shadow-xl z-50">{toast}</div>
-      )}
+      {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-lg bg-[#242840] border border-[#363a58] text-sm shadow-xl z-50">{toast}</div>}
     </div>
   )
 }
