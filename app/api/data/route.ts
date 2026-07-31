@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-async function fetchAll(table: string, select: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAll(table: string, select: string): Promise<any[]> {
   const PAGE = 1000
-  let rows: Record<string, unknown>[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rows: any[] = []
   let from = 0
   while (true) {
     const { data, error } = await supabase
@@ -26,20 +28,20 @@ export async function GET() {
     fetchAll('daily_prices', '*'),
   ])
 
-  // Group prices by product_id + date
-  const priceMap: Record<string, Record<string, { orders: number; units: number; organic: number; paid: number }>> = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const priceMap: Record<string, Record<string, any>> = {}
   for (const p of dailyPrices) {
     const key = `${p.product_id}__${p.date}`
     if (!priceMap[key]) priceMap[key] = {}
     priceMap[key][String(p.unit_price)] = {
-      orders: p.orders as number,
-      units: p.units as number,
-      organic: p.organic as number,
-      paid: p.paid as number,
+      orders: p.orders,
+      units: p.units,
+      organic: p.organic,
+      paid: p.paid,
     }
   }
 
-  const daily = dailyOrders.map(d => ({
+  const daily = dailyOrders.map((d: any) => ({
     ...d,
     prices: priceMap[`${d.product_id}__${d.date}`] || {},
   }))
