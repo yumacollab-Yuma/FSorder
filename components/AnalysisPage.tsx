@@ -367,7 +367,7 @@ export default function AnalysisPage() {
       {/* Tooltip */}
       {tooltip && (
         <div className="fixed z-50 pointer-events-none bg-[#242840] border border-[#363a58] rounded-xl p-3.5 shadow-2xl min-w-[200px]"
-          style={{ left: tooltip.x + 14, top: Math.max(8, tooltip.y - 80) }}>
+          style={{ left: tooltip.x + 220 > window.innerWidth ? tooltip.x - 234 : tooltip.x + 14, top: Math.max(8, tooltip.y - 80) }}>
           <div className="text-xs font-bold text-[#dde1f0] mb-2 pb-2 border-b border-[#2a2d45]">{tooltip.date}</div>
           {!tooltip.entry ? <div className="text-xs text-[#444870]">无订单</div> : (
             <>
