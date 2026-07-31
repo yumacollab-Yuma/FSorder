@@ -69,24 +69,22 @@ export async function POST(req: NextRequest) {
     dayBuf[key].orders.push({ units, price: unitPrice, isOrganic, isPaid })
   }
 
-  // Upsert products (don't overwrite internal_name)
-  const productRows = Object.values(productMap).map(p => ({
-    id: p.id,
-    full_name: p.fullName,
-    internal_name: '',   // only set on insert, update ignores via onConflict
-  }))
-  if (productRows.length) {
-    await supabaseAdmin.from('products').upsert(productRows, {
-      onConflict: 'id',
-      ignoreDuplicates: false,
-    })
-    // Don't overwrite internal_name — update only full_name for existing rows
-    for (const p of productRows) {
-      if (p.full_name) {
+  // Insert new products only — never overwrite internal_name of existing rows
+  if (Object.keys(productMap).length) {
+    for (const p of Object.values(productMap)) {
+      // Check if product exists
+      const { data: existing } = await supabaseAdmin
+        .from('products').select('id').eq('id', p.id).single()
+      if (!existing) {
+        // New product — insert with empty internal_name
+        await supabaseAdmin.from('products').insert({
+          id: p.id, full_name: p.fullName, internal_name: ''
+        })
+      } else if (p.fullName) {
+        // Existing product — only update full_name, never touch internal_name
         await supabaseAdmin.from('products')
-          .update({ full_name: p.full_name })
+          .update({ full_name: p.fullName })
           .eq('id', p.id)
-          .eq('internal_name', '')  // only if not yet named
       }
     }
   }

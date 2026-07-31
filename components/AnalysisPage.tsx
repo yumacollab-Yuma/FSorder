@@ -17,7 +17,7 @@ function displayName(p: Product | undefined) {
 }
 
 export default function AnalysisPage() {
-  const { password, authed } = useAuth()
+  const { password, authed, setAuthed, setPassword } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [daily, setDaily] = useState<DailyEntry[]>([])
   const [currentPid, setCurrentPid] = useState<string | null>(null)
@@ -30,6 +30,11 @@ export default function AnalysisPage() {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; entry: DailyEntry | null; date: string } | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Password modal state
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [showPwModal, setShowPwModal] = useState(false)
+  const [modalPw, setModalPw] = useState('')
 
   useEffect(() => { fetchData() }, [])
 
@@ -68,7 +73,6 @@ export default function AnalysisPage() {
     setChartEnd(dates[dates.length - 1] || '')
   }
 
-  // Monthly aggregation
   function getMonthly(month: string) {
     const entries = productDaily.filter(d => d.date.startsWith(month))
     const priceMap: Record<string, PriceDetail> = {}
@@ -86,25 +90,42 @@ export default function AnalysisPage() {
   }
 
   // File upload
-  async function handleFile(file: File) {
-    if (!authed) { showToast('请先在商品档案页验证密码'); return }
+  function handleFile(file: File) {
+    if (!authed) {
+      setPendingFile(file)
+      setShowPwModal(true)
+    } else {
+      doUpload(file, password)
+    }
+  }
+
+  async function confirmUpload() {
+    if (!modalPw || !pendingFile) return
+    setShowPwModal(false)
+    setAuthed(true)
+    setPassword(modalPw)
+    await doUpload(pendingFile, modalPw)
+    setModalPw('')
+    setPendingFile(null)
+  }
+
+  async function doUpload(file: File, pw: string) {
     setUploading(true); setUploadMsg('')
     const fd = new FormData(); fd.append('file', file)
-    const res = await fetch('/api/upload', { method: 'POST', headers: { 'x-upload-password': password }, body: fd })
+    const res = await fetch('/api/upload', { method: 'POST', headers: { 'x-upload-password': pw }, body: fd })
     const d = await res.json()
     setUploading(false)
     if (d.ok) {
       setUploadMsg(`✓ 已导入 ${d.imported} 条，跳过 ${d.skipped} 条`)
       fetchData(); showToast('上传成功')
+    } else if (res.status === 401) {
+      showToast('密码错误')
     } else {
       showToast(d.error || '上传失败')
     }
   }
 
-  // Chart
-  const filteredDates = productDaily.filter(d => d.date >= chartStart && d.date <= chartEnd).map(d => d.date)
-  const filteredEntries = filteredDates.map(date => productDaily.find(d => d.date === date) || null)
-
+  // Chart range
   function setRange(type: string) {
     const dates = productDaily.map(d => d.date).sort()
     const last = dates[dates.length - 1]
@@ -118,6 +139,9 @@ export default function AnalysisPage() {
       setChartEnd(`${yr}-${mo}-${new Date(+yr, +mo, 0).getDate()}`)
     }
   }
+
+  const filteredDates = productDaily.filter(d => d.date >= chartStart && d.date <= chartEnd).map(d => d.date)
+  const filteredEntries = filteredDates.map(date => productDaily.find(d => d.date === date) || null)
 
   const drawChart = useCallback(() => {
     const canvas = canvasRef.current
@@ -143,7 +167,6 @@ export default function AnalysisPage() {
     const padL = 52, padR = 16, padT = 20, padB = 36
     const chartW = W - padL - padR, chartH = H - padT - padB
 
-    // Grid
     ctx.strokeStyle = '#2a2d45'; ctx.lineWidth = 1
     for (let i = 0; i <= 4; i++) {
       const y = padT + (chartH / 4) * i
@@ -152,13 +175,11 @@ export default function AnalysisPage() {
       ctx.fillText(String(Math.round(maxVal * (1 - i / 4))), padL - 6, y + 4)
     }
 
-    // X labels
     const step = Math.max(1, Math.floor(dates.length / 8))
     ctx.fillStyle = '#444870'; ctx.font = '10px -apple-system,sans-serif'; ctx.textAlign = 'center'
     dates.forEach((d, i) => {
-      if (i % step === 0 || i === dates.length - 1) {
+      if (i % step === 0 || i === dates.length - 1)
         ctx.fillText(d.substring(5), padL + (i / (dates.length - 1 || 1)) * chartW, H - padB + 16)
-      }
     })
 
     const xPos = (i: number) => padL + (i / (dates.length - 1 || 1)) * chartW
@@ -183,14 +204,12 @@ export default function AnalysisPage() {
     drawLine(values,  '#6c63ff', 2)
     drawLine(organic, '#3ecf8e', 1.5)
 
-    // Legend
     ctx.font = '11px -apple-system,sans-serif'; ctx.textAlign = 'left'
     ctx.fillStyle = '#6c63ff'; ctx.fillRect(padL, 6, 14, 2.5)
     ctx.fillStyle = '#7e849e'; ctx.fillText('总订单', padL + 18, 11)
     ctx.fillStyle = '#3ecf8e'; ctx.fillRect(padL + 68, 6, 14, 2.5)
     ctx.fillStyle = '#7e849e'; ctx.fillText('自然流', padL + 86, 11)
 
-    // Store for hover
     canvas.dataset.padL = String(padL); canvas.dataset.padR = String(padR)
     canvas.dataset.chartW = String(chartW); canvas.dataset.W = String(W)
     canvas.dataset.len = String(dates.length)
@@ -210,13 +229,37 @@ export default function AnalysisPage() {
     const len = parseInt(canvas.dataset.len || '0')
     if (mx < padL || mx > W - padR || len === 0) { setTooltip(null); return }
     const idx = Math.min(len - 1, Math.max(0, Math.round((mx - padL) / chartW * (len - 1))))
-    const date = filteredDates[idx]
-    const entry = filteredEntries[idx]
-    setTooltip({ x: e.clientX, y: e.clientY, entry: entry || null, date })
+    setTooltip({ x: e.clientX, y: e.clientY, entry: filteredEntries[idx] || null, date: filteredDates[idx] })
   }
 
   return (
     <div className="flex" style={{ height: 'calc(100vh - 52px)' }}>
+
+      {/* Password modal */}
+      {showPwModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-[#1c1f2e] border border-[#2a2d45] rounded-xl p-6 w-80 shadow-2xl">
+            <div className="text-sm font-semibold text-[#dde1f0] mb-1">输入上传密码</div>
+            <div className="text-xs text-[#7e849e] mb-4">验证后即可上传订单文件</div>
+            <input
+              type="password"
+              placeholder="密码"
+              value={modalPw}
+              autoFocus
+              onChange={e => setModalPw(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && confirmUpload()}
+              className="w-full bg-[#13151f] border border-[#2a2d45] rounded-lg px-3 py-2 text-sm text-[#dde1f0] outline-none focus:border-[#6c63ff] mb-3"
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => { setShowPwModal(false); setModalPw(''); setPendingFile(null) }}
+                className="px-3 py-1.5 text-xs rounded-lg border border-[#2a2d45] text-[#7e849e]">取消</button>
+              <button onClick={confirmUpload}
+                className="px-4 py-1.5 text-xs rounded-lg bg-[#6c63ff] text-white">确认上传</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <div className="w-48 min-w-[192px] bg-[#13151f] border-r border-[#2a2d45] flex flex-col overflow-hidden">
         <div className="p-3 border-b border-[#2a2d45]">
@@ -225,7 +268,6 @@ export default function AnalysisPage() {
             placeholder="搜索..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
 
-        {/* Upload */}
         <label className={`mx-3 mt-3 mb-1 flex flex-col items-center justify-center p-3 rounded-lg border border-dashed border-[#363a58] cursor-pointer text-center transition-all ${uploading ? 'opacity-50' : 'hover:border-[#6c63ff]'}`}>
           <input type="file" accept=".xlsx,.xls" className="hidden" disabled={uploading}
             onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
@@ -256,13 +298,11 @@ export default function AnalysisPage() {
           </div>
         ) : (
           <>
-            {/* Header */}
             <div className="mb-6">
               <div className="text-[22px] font-bold tracking-tight">{displayName(currentProduct)}</div>
               <div className="text-[11px] font-mono text-[#444870] mt-1">{currentPid}</div>
             </div>
 
-            {/* Monthly summaries */}
             <div className="mb-8">
               <div className="flex items-center gap-3 mb-4">
                 <span className="text-[11px] font-semibold text-[#444870] uppercase tracking-widest">月度汇总</span>
@@ -294,7 +334,6 @@ export default function AnalysisPage() {
                 })}
               </div>
 
-              {/* Monthly price tables */}
               {productMonths.map(m => {
                 const md = getMonthly(m)
                 const sorted = Object.entries(md.prices).sort((a, b) => b[1].orders - a[1].orders)
@@ -331,7 +370,6 @@ export default function AnalysisPage() {
               })}
             </div>
 
-            {/* Chart */}
             <div className="mb-8">
               <div className="flex items-center gap-3 mb-4">
                 <span className="text-[11px] font-semibold text-[#444870] uppercase tracking-widest">每日订单趋势</span>
