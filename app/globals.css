@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2d45; border-radius: 3px; }
