@@ -1,0 +1,492 @@
+'use client'
+import { useEffect, useState, useRef, useCallback } from 'react'
+
+type Product = { id: string; internal_name: string; full_name: string }
+type DailyEntry = {
+  product_id: string; date: string
+  total_orders: number; total_units: number
+  organic_orders: number; paid_orders: number
+}
+
+function displayName(p: Product | undefined) {
+  if (!p) return '未知'
+  return p.internal_name || p.full_name || p.id
+}
+
+// ── Pie Chart ──────────────────────────────────────────────────────────────
+const PIE_COLORS = [
+  '#6c63ff','#3ecf8e','#f5a623','#e85d75','#38bdf8','#a78bfa',
+  '#fb923c','#34d399','#f472b6','#60a5fa','#facc15','#94a3b8',
+]
+
+function PieChart({ data }: { data: { label: string; value: number; color: string }[] }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const dpr = window.devicePixelRatio || 1
+    const size = Math.min(canvas.parentElement!.clientWidth, 260)
+    canvas.style.width = size + 'px'; canvas.style.height = size + 'px'
+    canvas.width = size * dpr; canvas.height = size * dpr
+    const ctx = canvas.getContext('2d')!
+    ctx.scale(dpr, dpr)
+    ctx.clearRect(0, 0, size, size)
+
+    const total = data.reduce((s, d) => s + d.value, 0)
+    if (!total) {
+      ctx.fillStyle = '#444870'; ctx.font = '13px -apple-system,sans-serif'
+      ctx.textAlign = 'center'; ctx.fillText('暂无数据', size / 2, size / 2)
+      return
+    }
+
+    const cx = size / 2, cy = size / 2, r = size * 0.38, inner = r * 0.55
+    let start = -Math.PI / 2
+
+    for (const d of data) {
+      const slice = (d.value / total) * Math.PI * 2
+      ctx.beginPath()
+      ctx.moveTo(cx, cy)
+      ctx.arc(cx, cy, r, start, start + slice)
+      ctx.closePath()
+      ctx.fillStyle = d.color
+      ctx.fill()
+      start += slice
+    }
+
+    // donut hole
+    ctx.beginPath()
+    ctx.arc(cx, cy, inner, 0, Math.PI * 2)
+    ctx.fillStyle = '#13151f'
+    ctx.fill()
+
+    // center text
+    ctx.fillStyle = '#dde1f0'; ctx.font = `bold ${Math.round(size * 0.11)}px -apple-system,sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(total.toLocaleString(), cx, cy - 8)
+    ctx.fillStyle = '#444870'; ctx.font = `${Math.round(size * 0.065)}px -apple-system,sans-serif`
+    ctx.fillText('总订单', cx, cy + 14)
+  }, [data])
+
+  useEffect(() => { draw() }, [draw])
+  useEffect(() => { window.addEventListener('resize', draw); return () => window.removeEventListener('resize', draw) }, [draw])
+
+  return <canvas ref={canvasRef} />
+}
+
+// ── Trend Chart ────────────────────────────────────────────────────────────
+function TrendChart({
+  dates, series,
+}: {
+  dates: string[]
+  series: { label: string; color: string; values: number[] }[]
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; idx: number } | null>(null)
+
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const parent = canvas.parentElement!
+    const dpr = window.devicePixelRatio || 1
+    const W = parent.clientWidth - 4, H = 240
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px'
+    canvas.width = W * dpr; canvas.height = H * dpr
+    const ctx = canvas.getContext('2d')!
+    ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H)
+
+    if (!dates.length) {
+      ctx.fillStyle = '#444870'; ctx.font = '13px -apple-system,sans-serif'
+      ctx.textAlign = 'center'; ctx.fillText('该时间段内无数据', W / 2, H / 2); return
+    }
+
+    const allVals = series.flatMap(s => s.values)
+    const maxVal = Math.max(...allVals, 1)
+    const padL = 56, padR = 16, padT = 24, padB = 40
+    const chartW = W - padL - padR, chartH = H - padT - padB
+
+    // grid
+    ctx.strokeStyle = '#2a2d45'; ctx.lineWidth = 1
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + (chartH / 4) * i
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke()
+      ctx.fillStyle = '#444870'; ctx.font = '10px -apple-system,sans-serif'; ctx.textAlign = 'right'
+      ctx.fillText(String(Math.round(maxVal * (1 - i / 4))), padL - 6, y + 4)
+    }
+
+    // x labels
+    const step = Math.max(1, Math.floor(dates.length / 8))
+    ctx.fillStyle = '#444870'; ctx.font = '10px -apple-system,sans-serif'; ctx.textAlign = 'center'
+    dates.forEach((d, i) => {
+      if (i % step === 0 || i === dates.length - 1)
+        ctx.fillText(d.substring(5), padL + (i / (dates.length - 1 || 1)) * chartW, H - padB + 18)
+    })
+
+    const xPos = (i: number) => padL + (i / (dates.length - 1 || 1)) * chartW
+    const yPos = (v: number) => padT + chartH - (v / maxVal) * chartH
+
+    for (const s of series) {
+      // area
+      ctx.beginPath()
+      s.values.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v)))
+      ctx.lineTo(xPos(s.values.length - 1), padT + chartH)
+      ctx.lineTo(xPos(0), padT + chartH)
+      ctx.closePath()
+      const g = ctx.createLinearGradient(0, padT, 0, padT + chartH)
+      const hex = s.color
+      g.addColorStop(0, hex + '28'); g.addColorStop(1, hex + '00')
+      ctx.fillStyle = g; ctx.fill()
+      // line
+      ctx.beginPath(); ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.lineJoin = 'round'
+      s.values.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v)))
+      ctx.stroke()
+    }
+
+    // legend
+    let lx = padL
+    for (const s of series) {
+      ctx.fillStyle = s.color; ctx.fillRect(lx, 8, 14, 2.5)
+      ctx.fillStyle = '#7e849e'; ctx.font = '10px -apple-system,sans-serif'; ctx.textAlign = 'left'
+      ctx.fillText(s.label, lx + 18, 13)
+      lx += ctx.measureText(s.label).width + 38
+    }
+
+    // store for tooltip
+    canvas.dataset.padL = String(padL); canvas.dataset.padR = String(padR)
+    canvas.dataset.chartW = String(chartW); canvas.dataset.W = String(W); canvas.dataset.len = String(dates.length)
+  }, [dates, series])
+
+  useEffect(() => { draw() }, [draw])
+  useEffect(() => { window.addEventListener('resize', draw); return () => window.removeEventListener('resize', draw) }, [draw])
+
+  function handleMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current!
+    const rect = canvas.getBoundingClientRect()
+    const mx = e.clientX - rect.left
+    const padL = parseFloat(canvas.dataset.padL || '56')
+    const padR = parseFloat(canvas.dataset.padR || '16')
+    const chartW = parseFloat(canvas.dataset.chartW || '0')
+    const W = parseFloat(canvas.dataset.W || '0')
+    const len = parseInt(canvas.dataset.len || '0')
+    if (mx < padL || mx > W - padR || len === 0) { setTooltip(null); return }
+    const idx = Math.min(len - 1, Math.max(0, Math.round((mx - padL) / chartW * (len - 1))))
+    setTooltip({ x: e.clientX, y: e.clientY, idx })
+  }
+
+  return (
+    <div className="relative">
+      <canvas ref={canvasRef} height={240} onMouseMove={handleMove} onMouseLeave={() => setTooltip(null)} style={{ cursor: 'crosshair' }} />
+      {tooltip && (
+        <div className="fixed z-50 pointer-events-none bg-[#242840] border border-[#363a58] rounded-xl p-3 shadow-2xl min-w-[160px]"
+          style={{ left: tooltip.x + 12, top: tooltip.y - 60 }}>
+          <div className="text-xs font-bold text-[#dde1f0] mb-2 pb-1.5 border-b border-[#2a2d45]">{dates[tooltip.idx]}</div>
+          {series.map(s => (
+            <div key={s.label} className="flex justify-between gap-4 text-xs mb-1">
+              <span className="text-[#7e849e] flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full" style={{ background: s.color }} />{s.label}
+              </span>
+              <span className="font-semibold text-[#dde1f0]">{s.values[tooltip.idx]?.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────
+export default function OverviewPage() {
+  const [products, setProducts] = useState<Product[]>([])
+  const [daily, setDaily] = useState<DailyEntry[]>([])
+  const [mode, setMode] = useState<'single' | 'range'>('range')
+  const [singleDate, setSingleDate] = useState('')
+  const [rangeStart, setRangeStart] = useState('')
+  const [rangeEnd, setRangeEnd] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/data').then(r => r.json()).then(d => {
+      setProducts(d.products || [])
+      setDaily(d.daily || [])
+      setLoading(false)
+      // default range: last 30 days of data
+      const allDates = [...new Set((d.daily || []).map((e: DailyEntry) => e.date))].sort() as string[]
+      if (allDates.length) {
+        const last = allDates[allDates.length - 1]
+        const first30 = allDates[Math.max(0, allDates.length - 30)]
+        setRangeStart(first30); setRangeEnd(last)
+        setSingleDate(last)
+      }
+    })
+  }, [])
+
+  const allDates = [...new Set(daily.map(d => d.date))].sort()
+  const minDate = allDates[0] || ''
+  const maxDate = allDates[allDates.length - 1] || ''
+
+  // quick-range buttons
+  function setQuickRange(type: string) {
+    if (!allDates.length) return
+    const last = allDates[allDates.length - 1]
+    if (type === '7d')  { setRangeStart(allDates[Math.max(0, allDates.length - 7)]);  setRangeEnd(last) }
+    if (type === '14d') { setRangeStart(allDates[Math.max(0, allDates.length - 14)]); setRangeEnd(last) }
+    if (type === '30d') { setRangeStart(allDates[Math.max(0, allDates.length - 30)]); setRangeEnd(last) }
+    if (type === 'all') { setRangeStart(allDates[0]); setRangeEnd(last) }
+  }
+
+  // ── Filtered data ──────────────────────────────────────────────────────
+  // Single-day mode: slice by singleDate
+  const singleEntries = daily.filter(d => d.date === singleDate)
+
+  // Range mode: filter by [rangeStart, rangeEnd]
+  const rangeEntries = daily.filter(d => d.date >= rangeStart && d.date <= rangeEnd)
+
+  // ── Per-product totals (for pie + table) ──────────────────────────────
+  function buildProductTotals(entries: DailyEntry[]) {
+    const map: Record<string, { orders: number; organic: number; paid: number }> = {}
+    for (const e of entries) {
+      if (!map[e.product_id]) map[e.product_id] = { orders: 0, organic: 0, paid: 0 }
+      map[e.product_id].orders += e.total_orders
+      map[e.product_id].organic += e.organic_orders
+      map[e.product_id].paid += e.paid_orders
+    }
+    return Object.entries(map)
+      .map(([pid, v]) => ({ pid, ...v, product: products.find(p => p.id === pid) }))
+      .sort((a, b) => b.orders - a.orders)
+  }
+
+  // ── Trend data (range mode): per-date total ────────────────────────────
+  function buildTrend(entries: DailyEntry[], dates: string[]) {
+    const byDate: Record<string, { total: number; organic: number; paid: number }> = {}
+    for (const d of dates) byDate[d] = { total: 0, organic: 0, paid: 0 }
+    for (const e of entries) {
+      if (byDate[e.date]) {
+        byDate[e.date].total += e.total_orders
+        byDate[e.date].organic += e.organic_orders
+        byDate[e.date].paid += e.paid_orders
+      }
+    }
+    const trendDates = dates.filter(d => d >= rangeStart && d <= rangeEnd)
+    return {
+      dates: trendDates,
+      total:   trendDates.map(d => byDate[d]?.total || 0),
+      organic: trendDates.map(d => byDate[d]?.organic || 0),
+      paid:    trendDates.map(d => byDate[d]?.paid || 0),
+    }
+  }
+
+  const activeEntries = mode === 'single' ? singleEntries : rangeEntries
+  const productTotals = buildProductTotals(activeEntries)
+  const totalOrders   = productTotals.reduce((s, p) => s + p.orders, 0)
+  const totalOrganic  = productTotals.reduce((s, p) => s + p.organic, 0)
+  const totalPaid     = productTotals.reduce((s, p) => s + p.paid, 0)
+
+  const pieData = productTotals.map((p, i) => ({
+    label: displayName(p.product),
+    value: p.orders,
+    color: PIE_COLORS[i % PIE_COLORS.length],
+  }))
+
+  const trendDates = allDates.filter(d => d >= rangeStart && d <= rangeEnd)
+  const trend = buildTrend(rangeEntries, allDates)
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-52px)] text-[#444870] text-sm">
+        加载中...
+      </div>
+    )
+  }
+
+  if (!daily.length) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-52px)] text-[#444870] gap-2">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" opacity={0.3}>
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+        </svg>
+        <span className="text-sm">暂无订单数据，请先上传 xlsx</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-6 max-w-screen-xl mx-auto overflow-y-auto" style={{ minHeight: 'calc(100vh - 52px)' }}>
+      {/* Page header */}
+      <div className="mb-6">
+        <h1 className="text-xl font-bold tracking-tight">全产品看板</h1>
+        <p className="text-xs text-[#7e849e] mt-1">跨 SKU 的订单汇总、趋势与占比</p>
+      </div>
+
+      {/* Mode toggle + controls */}
+      <div className="bg-[#13151f] border border-[#2a2d45] rounded-xl p-4 mb-6">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Mode switch */}
+          <div className="flex rounded-lg overflow-hidden border border-[#2a2d45]">
+            {(['single', 'range'] as const).map(m => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`px-3 py-1.5 text-xs font-medium transition-all ${mode === m ? 'bg-[#6c63ff] text-white' : 'text-[#7e849e] hover:text-white bg-[#1c1f2e]'}`}>
+                {m === 'single' ? '单日' : '时间段'}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'single' ? (
+            <input type="date" value={singleDate} min={minDate} max={maxDate}
+              onChange={e => setSingleDate(e.target.value)}
+              className="bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-3 py-1.5 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]"
+              style={{ colorScheme: 'dark' }} />
+          ) : (
+            <>
+              {['7d','14d','30d','all'].map(t => (
+                <button key={t} onClick={() => setQuickRange(t)}
+                  className="px-2.5 py-1.5 text-xs rounded-lg border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">
+                  {t === 'all' ? '全部' : `近${t.replace('d','天')}`}
+                </button>
+              ))}
+              <div className="flex items-center gap-2 text-xs text-[#444870]">
+                <span>从</span>
+                <input type="date" value={rangeStart} min={minDate} max={maxDate}
+                  onChange={e => setRangeStart(e.target.value)}
+                  className="bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-2 py-1.5 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]"
+                  style={{ colorScheme: 'dark' }} />
+                <span>至</span>
+                <input type="date" value={rangeEnd} min={minDate} max={maxDate}
+                  onChange={e => setRangeEnd(e.target.value)}
+                  className="bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-2 py-1.5 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]"
+                  style={{ colorScheme: 'dark' }} />
+              </div>
+            </>
+          )}
+
+          <div className="ml-auto text-xs text-[#444870]">
+            {mode === 'single'
+              ? singleDate || '—'
+              : `${trendDates.length} 天`}
+          </div>
+        </div>
+      </div>
+
+      {/* Summary KPI cards */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        {[
+          { label: '总订单',  value: totalOrders,   color: 'text-[#dde1f0]', sub: '' },
+          { label: '自然流',  value: totalOrganic,  color: 'text-[#3ecf8e]', sub: totalOrders ? `${Math.round(totalOrganic / totalOrders * 100)}%` : '' },
+          { label: '广告流',  value: totalPaid,     color: 'text-[#f5a623]', sub: totalOrders ? `${Math.round(totalPaid / totalOrders * 100)}%` : '' },
+          { label: '在售SKU', value: productTotals.filter(p => p.orders > 0).length, color: 'text-[#38bdf8]', sub: `/ ${products.length} 个` },
+        ].map(c => (
+          <div key={c.label} className="bg-[#13151f] border border-[#2a2d45] rounded-xl p-4">
+            <div className="text-[11px] text-[#444870] uppercase tracking-wider mb-2">{c.label}</div>
+            <div className={`text-2xl font-bold tracking-tight ${c.color}`}>{typeof c.value === 'number' ? c.value.toLocaleString() : c.value}</div>
+            {c.sub && <div className="text-xs text-[#444870] mt-1">{c.sub}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Trend chart (range mode only) */}
+      {mode === 'range' && (
+        <div className="bg-[#13151f] border border-[#2a2d45] rounded-xl p-5 mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-[11px] font-semibold text-[#444870] uppercase tracking-widest">全产品订单趋势</span>
+            <div className="flex-1 h-px bg-[#2a2d45]" />
+          </div>
+          <TrendChart
+            dates={trend.dates}
+            series={[
+              { label: '总订单', color: '#6c63ff', values: trend.total },
+              { label: '自然流', color: '#3ecf8e', values: trend.organic },
+              { label: '广告流', color: '#f5a623', values: trend.paid },
+            ]}
+          />
+        </div>
+      )}
+
+      {/* Pie + table row */}
+      <div className="grid grid-cols-[auto_1fr] gap-6 items-start">
+        {/* Pie chart */}
+        <div className="bg-[#13151f] border border-[#2a2d45] rounded-xl p-5 w-[300px]">
+          <div className="text-[11px] font-semibold text-[#444870] uppercase tracking-widest mb-4">订单占比</div>
+          <div className="flex justify-center mb-5">
+            <PieChart data={pieData} />
+          </div>
+          {/* Legend */}
+          <div className="space-y-2">
+            {pieData.slice(0, 10).map((d, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: d.color }} />
+                <span className="text-[#7e849e] flex-1 truncate">{d.label}</span>
+                <span className="font-semibold text-[#dde1f0]">{d.value.toLocaleString()}</span>
+                <span className="text-[#444870] min-w-[32px] text-right">
+                  {totalOrders ? Math.round(d.value / totalOrders * 100) : 0}%
+                </span>
+              </div>
+            ))}
+            {pieData.length > 10 && (
+              <div className="text-xs text-[#444870]">...及其他 {pieData.length - 10} 个 SKU</div>
+            )}
+          </div>
+        </div>
+
+        {/* Ranking table */}
+        <div className="bg-[#13151f] border border-[#2a2d45] rounded-xl overflow-hidden">
+          <div className="px-4 py-3 bg-[#1c1f2e] text-[11px] font-semibold text-[#444870] uppercase tracking-wider">
+            SKU 订单排行
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[#1c1f2e] border-t border-[#2a2d45]">
+                {['#', '商品名称', '总订单', '自然流', '广告流', '占比', '份额条'].map(h => (
+                  <th key={h} className="px-4 py-2 text-left text-[11px] text-[#444870] font-semibold uppercase tracking-wider whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {productTotals.length === 0 ? (
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-xs text-[#444870]">该时间段内无数据</td></tr>
+              ) : productTotals.map((p, i) => {
+                const pct     = totalOrders ? Math.round(p.orders / totalOrders * 100) : 0
+                const orgPct  = p.orders ? Math.round(p.organic / p.orders * 100) : 0
+                const paidPct = p.orders ? Math.round(p.paid / p.orders * 100) : 0
+                const color   = PIE_COLORS[i % PIE_COLORS.length]
+                return (
+                  <tr key={p.pid} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
+                    <td className="px-4 py-2.5 text-xs text-[#444870] tabular-nums">{i + 1}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+                        <div>
+                          <div className="text-[13px] font-semibold text-[#dde1f0] leading-snug">{displayName(p.product)}</div>
+                          <div className="text-[10px] font-mono text-[#444870]">{p.pid}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 tabular-nums font-semibold">{p.orders.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 tabular-nums text-[#3ecf8e]">
+                      {p.organic.toLocaleString()}
+                      <span className="text-[11px] text-[#444870] ml-1">{orgPct}%</span>
+                    </td>
+                    <td className="px-4 py-2.5 tabular-nums text-[#f5a623]">
+                      {p.paid.toLocaleString()}
+                      <span className="text-[11px] text-[#444870] ml-1">{paidPct}%</span>
+                    </td>
+                    <td className="px-4 py-2.5 tabular-nums text-xs text-[#7e849e]">{pct}%</td>
+                    <td className="px-4 py-2.5 w-28">
+                      <div className="h-1.5 bg-[#2a2d45] rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {productTotals.length > 0 && (
+            <div className="px-4 py-2.5 border-t border-[#2a2d45] bg-[#1c1f2e] flex items-center justify-between text-xs text-[#444870]">
+              <span>共 {productTotals.length} 个 SKU</span>
+              <span>合计 {totalOrders.toLocaleString()} 单</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
