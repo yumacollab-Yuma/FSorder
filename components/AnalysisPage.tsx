@@ -3,17 +3,21 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useAuth } from './AuthContext'
 
 type Product = { id: string; internal_name: string; full_name: string }
-type PriceDetail = { orders: number; units: number; organic: number; paid: number }
+type PriceDetail = { orders: number; units: number; organic: number; paid: number; refund: number }
 type DailyEntry = {
   product_id: string; date: string
   total_orders: number; total_units: number
-  organic_orders: number; paid_orders: number
+  organic_orders: number; paid_orders: number; refund_orders: number
   prices: Record<string, PriceDetail>
 }
 
 function displayName(p: Product | undefined) {
   if (!p) return '未知'
   return p.internal_name || '—'
+}
+
+function pct(num: number, den: number) {
+  return den ? Math.round(num / den * 100) : 0
 }
 
 export default function AnalysisPage() {
@@ -49,8 +53,6 @@ export default function AnalysisPage() {
     toastTimer.current = setTimeout(() => setToast(''), 2200)
   }
 
-  const allDates = [...new Set(daily.map(d => d.date))].sort()
-
   function getTotalOrders(pid: string) {
     return daily.filter(d => d.product_id === pid).reduce((s, d) => s + d.total_orders, 0)
   }
@@ -73,23 +75,23 @@ export default function AnalysisPage() {
     setFilterEnd(dates[dates.length - 1] || '')
   }
 
-  // Filtered entries (shared by summary + chart)
   const filteredDaily = productDaily.filter(d => d.date >= filterStart && d.date <= filterEnd)
 
-  // Aggregate filtered range
   function getAggregate() {
     const priceMap: Record<string, PriceDetail> = {}
-    let totalOrders = 0, totalUnits = 0, totalOrganic = 0, totalPaid = 0
+    let totalOrders = 0, totalUnits = 0, totalOrganic = 0, totalPaid = 0, totalRefund = 0
     for (const e of filteredDaily) {
       totalOrders += e.total_orders; totalUnits += e.total_units
       totalOrganic += e.organic_orders; totalPaid += e.paid_orders
+      totalRefund += e.refund_orders ?? 0
       for (const [price, pd] of Object.entries(e.prices)) {
-        if (!priceMap[price]) priceMap[price] = { orders: 0, units: 0, organic: 0, paid: 0 }
+        if (!priceMap[price]) priceMap[price] = { orders: 0, units: 0, organic: 0, paid: 0, refund: 0 }
         priceMap[price].orders += pd.orders; priceMap[price].units += pd.units
         priceMap[price].organic += pd.organic; priceMap[price].paid += pd.paid
+        priceMap[price].refund += pd.refund ?? 0
       }
     }
-    return { totalOrders, totalUnits, totalOrganic, totalPaid, prices: priceMap }
+    return { totalOrders, totalUnits, totalOrganic, totalPaid, totalRefund, prices: priceMap }
   }
 
   function setRange(type: string) {
@@ -106,7 +108,6 @@ export default function AnalysisPage() {
     }
   }
 
-  // File upload
   function handleFile(file: File) {
     if (!authed) { setPendingFile(file); setShowPwModal(true) }
     else doUpload(file, password)
@@ -130,7 +131,6 @@ export default function AnalysisPage() {
     else showToast(d.error || '上传失败')
   }
 
-  // Chart
   const filteredDates = filteredDaily.map(d => d.date)
   const filteredEntries = filteredDates.map(date => productDaily.find(d => d.date === date) || null)
 
@@ -153,6 +153,7 @@ export default function AnalysisPage() {
 
     const values  = entries.map(e => e?.total_orders || 0)
     const organic = entries.map(e => e?.organic_orders || 0)
+    const refunds = entries.map(e => e?.refund_orders || 0)
     const maxVal  = Math.max(...values, 1)
     const padL = 52, padR = 16, padT = 20, padB = 36
     const chartW = W - padL - padR, chartH = H - padT - padB
@@ -181,17 +182,23 @@ export default function AnalysisPage() {
     drawArea(values,  'rgba(108,99,255,0.20)', 'rgba(108,99,255,0)')
     drawArea(organic, 'rgba(62,207,142,0.12)', 'rgba(62,207,142,0)')
 
-    const drawLine = (vals: number[], color: string, width: number) => {
+    const drawLine = (vals: number[], color: string, width: number, dash: number[] = []) => {
       ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'
-      vals.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v))); ctx.stroke()
+      ctx.setLineDash(dash)
+      vals.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v)))
+      ctx.stroke(); ctx.setLineDash([])
     }
-    drawLine(values, '#6c63ff', 2); drawLine(organic, '#3ecf8e', 1.5)
+    drawLine(values, '#6c63ff', 2)
+    drawLine(organic, '#3ecf8e', 1.5)
+    drawLine(refunds, '#e85d75', 1.5, [4, 3])
 
     ctx.font = '11px -apple-system,sans-serif'; ctx.textAlign = 'left'
     ctx.fillStyle = '#6c63ff'; ctx.fillRect(padL, 6, 14, 2.5)
     ctx.fillStyle = '#7e849e'; ctx.fillText('总订单', padL + 18, 11)
     ctx.fillStyle = '#3ecf8e'; ctx.fillRect(padL + 68, 6, 14, 2.5)
     ctx.fillStyle = '#7e849e'; ctx.fillText('自然流', padL + 86, 11)
+    ctx.fillStyle = '#e85d75'; ctx.fillRect(padL + 136, 6, 14, 2.5)
+    ctx.fillStyle = '#7e849e'; ctx.fillText('退货', padL + 154, 11)
 
     canvas.dataset.padL = String(padL); canvas.dataset.padR = String(padR)
     canvas.dataset.chartW = String(chartW); canvas.dataset.W = String(W); canvas.dataset.len = String(dates.length)
@@ -213,13 +220,10 @@ export default function AnalysisPage() {
   }
 
   const agg = currentPid ? getAggregate() : null
-  const orgPct  = agg && agg.totalOrders ? Math.round(agg.totalOrganic / agg.totalOrders * 100) : 0
-  const paidPct = agg && agg.totalOrders ? Math.round(agg.totalPaid / agg.totalOrders * 100) : 0
 
   return (
     <div className="flex" style={{ height: 'calc(100vh - 52px)' }}>
 
-      {/* Password modal */}
       {showPwModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-[#1c1f2e] border border-[#2a2d45] rounded-xl p-6 w-80 shadow-2xl">
@@ -274,13 +278,12 @@ export default function AnalysisPage() {
           </div>
         ) : (
           <>
-            {/* Header */}
             <div className="mb-5">
               <div className="text-[22px] font-bold tracking-tight">{displayName(currentProduct)}</div>
               <div className="text-[11px] font-mono text-[#444870] mt-1">{currentPid}</div>
             </div>
 
-            {/* Unified time filter */}
+            {/* Time filter */}
             <div className="flex items-center gap-2 flex-wrap mb-6 p-3 bg-[#13151f] border border-[#2a2d45] rounded-xl">
               {['7d','14d','30d'].map(t => (
                 <button key={t} onClick={() => setRange(t)} className="px-2.5 py-1 text-xs rounded-md border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">近{t.replace('d','天')}</button>
@@ -302,16 +305,17 @@ export default function AnalysisPage() {
 
             {/* Summary cards */}
             {agg && (
-              <div className="grid grid-cols-4 gap-3 mb-6">
+              <div className="grid grid-cols-5 gap-3 mb-6">
                 {[
-                  { label: '总订单', value: agg.totalOrders.toLocaleString(), sub: '', color: '' },
-                  { label: '总件数', value: agg.totalUnits.toLocaleString(), sub: '', color: '' },
-                  { label: '自然流', value: agg.totalOrganic.toLocaleString(), sub: `${orgPct}%`, color: 'text-[#3ecf8e]' },
-                  { label: '广告流', value: agg.totalPaid.toLocaleString(), sub: `${paidPct}%`, color: 'text-[#f5a623]' },
+                  { label: '总订单',  value: agg.totalOrders,   sub: '成交+退货',                       color: '' },
+                  { label: '总件数',  value: agg.totalUnits,    sub: '',                                color: '' },
+                  { label: '自然流',  value: agg.totalOrganic,  sub: `${pct(agg.totalOrganic, agg.totalOrders)}% 占总单`, color: 'text-[#3ecf8e]' },
+                  { label: '广告流',  value: agg.totalPaid,     sub: `${pct(agg.totalPaid, agg.totalOrders)}% 占总单`,   color: 'text-[#f5a623]' },
+                  { label: '退货',    value: agg.totalRefund,   sub: `${pct(agg.totalRefund, agg.totalOrders)}% 退货率`, color: 'text-[#e85d75]' },
                 ].map(c => (
                   <div key={c.label} className="bg-[#13151f] border border-[#2a2d45] rounded-xl p-4">
                     <div className="text-[11px] text-[#444870] uppercase tracking-wider mb-2">{c.label}</div>
-                    <div className={`text-2xl font-bold tracking-tight ${c.color}`}>{c.value}</div>
+                    <div className={`text-2xl font-bold tracking-tight ${c.color}`}>{c.value.toLocaleString()}</div>
                     {c.sub && <div className="text-xs text-[#444870] mt-1">{c.sub}</div>}
                   </div>
                 ))}
@@ -325,23 +329,27 @@ export default function AnalysisPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-[#1c1f2e]">
-                      {['价格','订单','件数','自然流','广告流','占比'].map(h => (
+                      {['价格','订单','件数','自然流','广告流','退货','退货率','占比'].map(h => (
                         <th key={h} className="px-4 py-2 text-left text-[11px] text-[#444870] font-semibold uppercase tracking-wider whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {Object.entries(agg.prices).sort((a,b)=>b[1].orders-a[1].orders).map(([price, pd]) => {
-                      const pct  = agg.totalOrders ? Math.round(pd.orders / agg.totalOrders * 100) : 0
-                      const orgP = pd.orders ? Math.round(pd.organic / pd.orders * 100) : 0
+                      const sharePct  = pct(pd.orders, agg.totalOrders)
+                      const orgPct    = pct(pd.organic, pd.orders)
+                      const paidPct   = pct(pd.paid, pd.orders)
+                      const refundPct = pct(pd.refund ?? 0, pd.orders)
                       return (
                         <tr key={price} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
                           <td className="px-4 py-2"><span className="bg-[rgba(108,99,255,0.15)] text-[#6c63ff] px-1.5 py-0.5 rounded text-[11px] font-semibold">${parseFloat(price).toFixed(2)}</span></td>
                           <td className="px-4 py-2 tabular-nums">{pd.orders.toLocaleString()}</td>
                           <td className="px-4 py-2 tabular-nums">{pd.units.toLocaleString()}</td>
-                          <td className="px-4 py-2 tabular-nums text-[#3ecf8e]">{pd.organic.toLocaleString()} <span className="text-[11px] text-[#444870]">{orgP}%</span></td>
-                          <td className="px-4 py-2 tabular-nums text-[#f5a623]">{pd.paid.toLocaleString()}</td>
-                          <td className="px-4 py-2 tabular-nums text-[11px] text-[#444870]">{pct}%</td>
+                          <td className="px-4 py-2 tabular-nums text-[#3ecf8e]">{pd.organic.toLocaleString()} <span className="text-[11px] text-[#444870]">{orgPct}%</span></td>
+                          <td className="px-4 py-2 tabular-nums text-[#f5a623]">{pd.paid.toLocaleString()} <span className="text-[11px] text-[#444870]">{paidPct}%</span></td>
+                          <td className="px-4 py-2 tabular-nums text-[#e85d75]">{(pd.refund ?? 0).toLocaleString()}</td>
+                          <td className="px-4 py-2 tabular-nums text-[11px] text-[#e85d75]">{refundPct}%</td>
+                          <td className="px-4 py-2 tabular-nums text-[11px] text-[#444870]">{sharePct}%</td>
                         </tr>
                       )
                     })}
@@ -369,32 +377,41 @@ export default function AnalysisPage() {
         <div className="fixed z-50 pointer-events-none bg-[#242840] border border-[#363a58] rounded-xl p-3.5 shadow-2xl min-w-[200px]"
           style={{ left: tooltip.x + 220 > window.innerWidth ? tooltip.x - 234 : tooltip.x + 14, top: Math.max(8, tooltip.y - 80) }}>
           <div className="text-xs font-bold text-[#dde1f0] mb-2 pb-2 border-b border-[#2a2d45]">{tooltip.date}</div>
-          {!tooltip.entry ? <div className="text-xs text-[#444870]">无订单</div> : (
-            <>
-              {[['总订单', String(tooltip.entry.total_orders), ''], ['总件数', String(tooltip.entry.total_units), ''],
-                ['自然流', String(tooltip.entry.organic_orders), `${Math.round(tooltip.entry.organic_orders/tooltip.entry.total_orders*100)}%`],
-                ['广告流', String(tooltip.entry.paid_orders), '']].map(([k, v, sub]) => (
-                <div key={k} className="flex justify-between text-xs mb-1">
-                  <span className="text-[#7e849e]">{k}</span>
-                  <span className={`font-semibold ${k==='自然流'?'text-[#3ecf8e]':k==='广告流'?'text-[#f5a623]':''}`}>
-                    {v} {sub && <span className="text-[#444870] text-[10px]">{sub}</span>}
-                  </span>
-                </div>
-              ))}
-              {Object.entries(tooltip.entry.prices).length > 0 && (
-                <div className="mt-2 pt-2 border-t border-[#2a2d45]">
-                  {Object.entries(tooltip.entry.prices).sort((a,b)=>b[1].orders-a[1].orders).map(([price, pd]) => (
-                    <div key={price} className="flex items-center gap-1.5 text-[11px] mb-1">
-                      <span className="bg-[rgba(108,99,255,0.15)] text-[#6c63ff] px-1.5 py-px rounded font-semibold min-w-[42px] text-center">${parseFloat(price).toFixed(2)}</span>
-                      <span className="font-semibold text-[#dde1f0] min-w-[20px]">{pd.orders}</span>
-                      <span className="text-[#3ecf8e]">自然{pd.organic}</span>
-                      {pd.paid > 0 && <span className="text-[#f5a623]">广告{pd.paid}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+          {!tooltip.entry ? <div className="text-xs text-[#444870]">无订单</div> : (() => {
+            const e = tooltip.entry
+            const rows = [
+              { k: '总订单', v: String(e.total_orders), sub: '成交+退货', color: '' },
+              { k: '总件数', v: String(e.total_units),  sub: '', color: '' },
+              { k: '自然流', v: String(e.organic_orders), sub: `${pct(e.organic_orders, e.total_orders)}%`, color: 'text-[#3ecf8e]' },
+              { k: '广告流', v: String(e.paid_orders),    sub: `${pct(e.paid_orders, e.total_orders)}%`,   color: 'text-[#f5a623]' },
+              { k: '退货',   v: String(e.refund_orders ?? 0), sub: `${pct(e.refund_orders ?? 0, e.total_orders)}%`, color: 'text-[#e85d75]' },
+            ]
+            return (
+              <>
+                {rows.map(({ k, v, sub, color }) => (
+                  <div key={k} className="flex justify-between text-xs mb-1">
+                    <span className="text-[#7e849e]">{k}</span>
+                    <span className={`font-semibold ${color}`}>
+                      {v} {sub && <span className="text-[#444870] text-[10px]">{sub}</span>}
+                    </span>
+                  </div>
+                ))}
+                {Object.entries(e.prices).length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-[#2a2d45]">
+                    {Object.entries(e.prices).sort((a,b)=>b[1].orders-a[1].orders).map(([price, pd]) => (
+                      <div key={price} className="flex items-center gap-1.5 text-[11px] mb-1">
+                        <span className="bg-[rgba(108,99,255,0.15)] text-[#6c63ff] px-1.5 py-px rounded font-semibold min-w-[42px] text-center">${parseFloat(price).toFixed(2)}</span>
+                        <span className="font-semibold text-[#dde1f0] min-w-[20px]">{pd.orders}</span>
+                        <span className="text-[#3ecf8e]">自然{pd.organic}</span>
+                        {pd.paid > 0 && <span className="text-[#f5a623]">广告{pd.paid}</span>}
+                        {(pd.refund ?? 0) > 0 && <span className="text-[#e85d75]">退{pd.refund}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
 

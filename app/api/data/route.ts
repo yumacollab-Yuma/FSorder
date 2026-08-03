@@ -38,11 +38,14 @@ export async function GET() {
       units: p.units,
       organic: p.organic,
       paid: p.paid,
+      refund: p.refund ?? 0,
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const daily = dailyOrders.map((d: any) => ({
     ...d,
+    refund_orders: d.refund_orders ?? 0,
     prices: priceMap[`${d.product_id}__${d.date}`] || {},
   }))
 

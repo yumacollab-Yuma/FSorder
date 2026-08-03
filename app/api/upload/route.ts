@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 
-// Use service role key for writes (set in Vercel env vars, never exposed to client)
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -19,7 +18,6 @@ function parseDate(val: unknown): string | null {
 }
 
 export async function POST(req: NextRequest) {
-  // Password check
   const password = req.headers.get('x-upload-password')
   if (password !== process.env.UPLOAD_PASSWORD) {
     return NextResponse.json({ error: '密码错误' }, { status: 401 })
@@ -34,21 +32,15 @@ export async function POST(req: NextRequest) {
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(ws, { defval: null }) as Record<string, unknown>[]
 
-  // Accumulators keyed by product_id+date
   const productMap: Record<string, { id: string; fullName: string }> = {}
-  type DayKey = string
-  type PriceKey = string
-  const dayBuf: Record<DayKey, {
+  const dayBuf: Record<string, {
     productId: string; date: string
-    orders: { units: number; price: number; isOrganic: boolean; isPaid: boolean }[]
+    orders: { units: number; price: number; isOrganic: boolean; isPaid: boolean; isRefund: boolean }[]
   }> = {}
 
   let skipped = 0
 
   for (const row of rows) {
-    // Skip refunds
-    if (row['已全部退货或全额退款'] === '是') { skipped++; continue }
-
     const payDate = parseDate(row['支付时间'])
     if (!payDate) { skipped++; continue }
 
@@ -57,8 +49,9 @@ export async function POST(req: NextRequest) {
     const units    = parseInt(String(row['下单件数'] || '1')) || 1
     const estComm  = parseFloat(String(row['预估计佣金额'] || '0')) || 0
     const unitPrice = Math.round((estComm / units) * 100) / 100
-    const isOrganic = row['标准佣金率'] != null && row['标准佣金率'] !== ''
-    const isPaid    = row['店铺广告佣金率'] != null && row['店铺广告佣金率'] !== ''
+    const isRefund  = row['已全部退货或全额退款'] === '是'
+    const isOrganic = !isRefund && row['标准佣金率'] != null && row['标准佣金率'] !== ''
+    const isPaid    = !isRefund && row['店铺广告佣金率'] != null && row['店铺广告佣金率'] !== ''
 
     if (!pid) { skipped++; continue }
 
@@ -66,66 +59,63 @@ export async function POST(req: NextRequest) {
 
     const key = `${pid}__${payDate}`
     if (!dayBuf[key]) dayBuf[key] = { productId: pid, date: payDate, orders: [] }
-    dayBuf[key].orders.push({ units, price: unitPrice, isOrganic, isPaid })
+    dayBuf[key].orders.push({ units, price: unitPrice, isOrganic, isPaid, isRefund })
   }
 
-  // Insert new products only — never overwrite internal_name of existing rows
-  if (Object.keys(productMap).length) {
-    for (const p of Object.values(productMap)) {
-      // Check if product exists
-      const { data: existing } = await supabaseAdmin
-        .from('products').select('id').eq('id', p.id).single()
-      if (!existing) {
-        // New product — insert with empty internal_name
-        await supabaseAdmin.from('products').insert({
-          id: p.id, full_name: p.fullName, internal_name: ''
-        })
-      } else if (p.fullName) {
-        // Existing product — only update full_name, never touch internal_name
-        await supabaseAdmin.from('products')
-          .update({ full_name: p.fullName })
-          .eq('id', p.id)
-      }
+  // Upsert products
+  for (const p of Object.values(productMap)) {
+    const { data: existing } = await supabaseAdmin
+      .from('products').select('id').eq('id', p.id).single()
+    if (!existing) {
+      await supabaseAdmin.from('products').insert({ id: p.id, full_name: p.fullName, internal_name: '' })
+    } else if (p.fullName) {
+      await supabaseAdmin.from('products').update({ full_name: p.fullName }).eq('id', p.id)
     }
   }
 
-  // Build daily aggregates
+  // Build aggregates
   const dailyRows: {
     product_id: string; date: string
     total_orders: number; total_units: number
-    organic_orders: number; paid_orders: number
+    organic_orders: number; paid_orders: number; refund_orders: number
   }[] = []
 
   const priceRows: {
     product_id: string; date: string; unit_price: number
-    orders: number; units: number; organic: number; paid: number
+    orders: number; units: number; organic: number; paid: number; refund: number
   }[] = []
 
-  for (const [, buf] of Object.entries(dayBuf)) {
+  for (const buf of Object.values(dayBuf)) {
     const { productId, date, orders } = buf
-    let totalOrders = 0, totalUnits = 0, totalOrganic = 0, totalPaid = 0
-    const priceMap: Record<number, { orders: number; units: number; organic: number; paid: number }> = {}
+    let totalOrders = 0, totalUnits = 0, totalOrganic = 0, totalPaid = 0, totalRefund = 0
+    const priceMap: Record<number, { orders: number; units: number; organic: number; paid: number; refund: number }> = {}
 
     for (const o of orders) {
       totalOrders++
-      totalUnits += o.units
+      if (!o.isRefund) totalUnits += o.units
       if (o.isOrganic) totalOrganic++
       if (o.isPaid) totalPaid++
-      if (!priceMap[o.price]) priceMap[o.price] = { orders: 0, units: 0, organic: 0, paid: 0 }
+      if (o.isRefund) totalRefund++
+
+      if (!priceMap[o.price]) priceMap[o.price] = { orders: 0, units: 0, organic: 0, paid: 0, refund: 0 }
       priceMap[o.price].orders++
-      priceMap[o.price].units += o.units
+      if (!o.isRefund) priceMap[o.price].units += o.units
       if (o.isOrganic) priceMap[o.price].organic++
       if (o.isPaid) priceMap[o.price].paid++
+      if (o.isRefund) priceMap[o.price].refund++
     }
 
-    dailyRows.push({ product_id: productId, date, total_orders: totalOrders, total_units: totalUnits, organic_orders: totalOrganic, paid_orders: totalPaid })
+    dailyRows.push({
+      product_id: productId, date,
+      total_orders: totalOrders, total_units: totalUnits,
+      organic_orders: totalOrganic, paid_orders: totalPaid, refund_orders: totalRefund,
+    })
 
     for (const [price, pd] of Object.entries(priceMap)) {
       priceRows.push({ product_id: productId, date, unit_price: parseFloat(price), ...pd })
     }
   }
 
-  // Upsert in batches of 500
   const batchUpsert = async (table: string, data: Record<string, unknown>[], conflict: string) => {
     for (let i = 0; i < data.length; i += 500) {
       const batch = data.slice(i, i + 500)

@@ -16,10 +16,11 @@ create table if not exists daily_orders (
   id serial primary key,
   product_id text not null references products(id),
   date date not null,
-  total_orders int not null default 0,
+  total_orders int not null default 0,   -- 成交 + 退货总和
   total_units int not null default 0,
   organic_orders int not null default 0,
   paid_orders int not null default 0,
+  refund_orders int not null default 0,  -- 退货订单数
   unique(product_id, date)
 );
 
@@ -33,6 +34,7 @@ create table if not exists daily_prices (
   units int not null default 0,
   organic int not null default 0,
   paid int not null default 0,
+  refund int not null default 0,         -- 该价格档退货数
   unique(product_id, date, unit_price)
 );
 
@@ -49,3 +51,9 @@ create policy "public read daily_prices" on daily_prices for select using (true)
 create policy "service write products" on products for all using (true);
 create policy "service write daily_orders" on daily_orders for all using (true);
 create policy "service write daily_prices" on daily_prices for all using (true);
+
+-- ============================================================
+-- 迁移脚本：已有数据库执行这两行补列即可（新建库不需要）
+-- alter table daily_orders add column if not exists refund_orders int not null default 0;
+-- alter table daily_prices add column if not exists refund int not null default 0;
+-- ============================================================
