@@ -12,6 +12,13 @@ function displayName(p: Product | undefined) {
 }
 function pct(n: number, d: number) { return d ? Math.round(n / d * 100) : 0 }
 
+function medal(i: number) {
+  if (i === 0) return <span title="第1名">🥇</span>
+  if (i === 1) return <span title="第2名">🥈</span>
+  if (i === 2) return <span title="第3名">🥉</span>
+  return <span className="text-[10px] text-[#444870] tabular-nums">{i + 1}</span>
+}
+
 const LINE_COLORS = ['#6c63ff','#3ecf8e','#f5a623','#e85d75','#38bdf8','#a78bfa','#fb923c','#34d399']
 
 function TrendChart({ dates, series }: {
@@ -130,8 +137,13 @@ export default function CreatorAnalysisPage({
   const [channelFilter, setChannelFilter] = useState<'all' | '视频' | '直播'>('all')
   const [metricMode, setMetricMode] = useState<'total' | 'breakdown'>('total')
 
-  // All creators
-  const allCreators = [...new Set(creatorDaily.map(d => d.creator))].filter(Boolean).sort()
+  // All creators sorted by total orders across all products
+  const creatorTotals: Record<string, number> = {}
+  for (const d of creatorDaily) {
+    if (d.creator) creatorTotals[d.creator] = (creatorTotals[d.creator] || 0) + d.orders
+  }
+  const allCreators = [...new Set(creatorDaily.map(d => d.creator))].filter(Boolean)
+    .sort((a, b) => (creatorTotals[b] || 0) - (creatorTotals[a] || 0))
   const filteredCreators = allCreators.filter(c => !creatorSearch || c.toLowerCase().includes(creatorSearch.toLowerCase()))
 
   function selectCreator(c: string) {
@@ -235,10 +247,14 @@ export default function CreatorAnalysisPage({
             className="w-full bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-2.5 py-1.5 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff] placeholder-[#444870]" />
         </div>
         <div className="flex-1 overflow-y-auto">
-          {filteredCreators.map(c => (
+          {filteredCreators.map((c, i) => (
             <div key={c} onClick={() => selectCreator(c)}
               className={`px-3 py-2.5 border-b border-[#2a2d45] cursor-pointer transition-all ${selectedCreator === c ? 'bg-[rgba(108,99,255,0.15)] border-l-2 border-l-[#6c63ff] pl-2.5' : 'hover:bg-[#1c1f2e]'}`}>
-              <div className="text-[12px] font-semibold text-[#dde1f0] truncate">{c}</div>
+              <div className="flex items-center gap-1.5">
+                <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0">{medal(i)}</span>
+                <div className="text-[12px] font-semibold text-[#dde1f0] truncate">{c}</div>
+              </div>
+              <div className="text-[11px] text-[#444870] mt-0.5 pl-6">{(creatorTotals[c] || 0).toLocaleString()} 单</div>
             </div>
           ))}
           {filteredCreators.length === 0 && <div className="px-3 py-4 text-xs text-[#444870]">无匹配达人</div>}

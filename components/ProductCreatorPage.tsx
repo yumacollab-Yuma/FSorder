@@ -118,12 +118,23 @@ export default function ProductCreatorPage({
           <div className="text-[10px] font-semibold text-[#444870] uppercase tracking-widest mb-1">选择产品</div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {products.map(p => (
-            <div key={p.id} onClick={() => selectProduct(p.id)}
-              className={`px-3 py-2.5 border-b border-[#2a2d45] cursor-pointer transition-all text-[13px] font-semibold leading-snug ${selectedPid === p.id ? 'bg-[rgba(108,99,255,0.15)] border-l-2 border-l-[#6c63ff] pl-2.5 text-[#dde1f0]' : 'text-[#7e849e] hover:bg-[#1c1f2e] hover:text-[#dde1f0]'}`}>
-              {displayName(p)}
-            </div>
-          ))}
+          {[...products].sort((a, b) => {
+            const aOrders = creatorDaily.filter(d => d.product_id === a.id).reduce((s, d) => s + d.orders, 0)
+            const bOrders = creatorDaily.filter(d => d.product_id === b.id).reduce((s, d) => s + d.orders, 0)
+            return bOrders - aOrders
+          }).map((p, i) => {
+            const totalOrd = creatorDaily.filter(d => d.product_id === p.id).reduce((s, d) => s + d.orders, 0)
+            return (
+              <div key={p.id} onClick={() => selectProduct(p.id)}
+                className={`px-3 py-2.5 border-b border-[#2a2d45] cursor-pointer transition-all ${selectedPid === p.id ? 'bg-[rgba(108,99,255,0.15)] border-l-2 border-l-[#6c63ff] pl-2.5' : 'hover:bg-[#1c1f2e]'}`}>
+                <div className="flex items-center gap-1.5">
+                  <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0">{medal(i)}</span>
+                  <div className={`text-[13px] font-semibold leading-snug truncate ${selectedPid === p.id ? 'text-[#dde1f0]' : 'text-[#7e849e]'}`}>{displayName(p)}</div>
+                </div>
+                <div className="text-[11px] text-[#444870] mt-0.5 pl-6">{totalOrd.toLocaleString()} 单</div>
+              </div>
+            )
+          })}
         </div>
       </div>
 
