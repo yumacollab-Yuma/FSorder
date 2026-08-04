@@ -11,6 +11,13 @@ type CreatorCommission = {
   commission_type: string; commission_rate: string; orders: number
 }
 
+function medal(i: number) {
+  if (i === 0) return <span title="第1名">🥇</span>
+  if (i === 1) return <span title="第2名">🥈</span>
+  if (i === 2) return <span title="第3名">🥉</span>
+  return <span className="text-[10px] text-[#444870] tabular-nums">{i + 1}</span>
+}
+
 function displayName(p: Product | undefined) {
   return p?.internal_name || p?.full_name || p?.id || '未知'
 }
@@ -171,7 +178,7 @@ export default function ProductCreatorPage({
                       <tr><td colSpan={9} className="px-4 py-8 text-center text-xs text-[#444870]">暂无数据</td></tr>
                     ) : creatorList.map((c, i) => (
                       <tr key={c.creator} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
-                        <td className="px-3 py-2.5 text-xs text-[#444870]">{i + 1}</td>
+                        <td className="px-3 py-2.5 text-sm">{medal(i)}</td>
                         <td className="px-3 py-2.5">
                           <div className="text-[13px] font-semibold text-[#dde1f0] max-w-[120px] truncate">{c.creator || '—'}</div>
                         </td>

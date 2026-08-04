@@ -8,6 +8,13 @@ type DailyEntry = {
   organic_orders: number; paid_orders: number; refund_orders: number
 }
 
+function medal(i: number) {
+  if (i === 0) return <span title="第1名">🥇</span>
+  if (i === 1) return <span title="第2名">🥈</span>
+  if (i === 2) return <span title="第3名">🥉</span>
+  return <span className="text-[10px] text-[#444870] tabular-nums">{i + 1}</span>
+}
+
 function displayName(p: Product | undefined) {
   if (!p) return '未知'
   return p.internal_name || p.full_name || p.id
@@ -404,7 +411,7 @@ export default function OverviewPage({ products, daily }: { products: Product[];
                 const color     = PIE_COLORS[i % PIE_COLORS.length]
                 return (
                   <tr key={p.pid} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
-                    <td className="px-3 py-2.5 text-xs text-[#444870] tabular-nums">{i + 1}</td>
+                    <td className="px-3 py-2.5 text-sm">{medal(i)}</td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />

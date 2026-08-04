@@ -20,6 +20,13 @@ function pct(num: number, den: number) {
   return den ? Math.round(num / den * 100) : 0
 }
 
+function medal(i: number) {
+  if (i === 0) return <span title="第1名">🥇</span>
+  if (i === 1) return <span title="第2名">🥈</span>
+  if (i === 2) return <span title="第3名">🥉</span>
+  return <span className="text-[10px] text-[#444870] tabular-nums w-4 text-center">{i + 1}</span>
+}
+
 export default function AnalysisPage({ products, daily, onDataRefresh }: {
   products: Product[]
   daily: DailyEntry[]
@@ -252,11 +259,14 @@ export default function AnalysisPage({ products, daily, onDataRefresh }: {
         </label>
         {uploadMsg && <div className="mx-3 text-[10px] text-[#3ecf8e] leading-snug mb-1">{uploadMsg}</div>}
         <div className="flex-1 overflow-y-auto">
-          {sortedProducts.map(p => (
+          {sortedProducts.map((p, i) => (
             <div key={p.id} onClick={() => selectProduct(p.id)}
               className={`px-3 py-2.5 border-b border-[#2a2d45] cursor-pointer transition-all ${currentPid === p.id ? 'bg-[rgba(108,99,255,0.15)] border-l-2 border-l-[#6c63ff] pl-2.5' : 'hover:bg-[#1c1f2e]'}`}>
-              <div className="text-[13px] font-semibold text-[#dde1f0] leading-snug">{displayName(p)}</div>
-              <div className="text-[11px] text-[#444870] mt-0.5">{getTotalOrders(p.id).toLocaleString()} 单</div>
+              <div className="flex items-center gap-1.5">
+                <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0">{medal(i)}</span>
+                <div className="text-[13px] font-semibold text-[#dde1f0] leading-snug truncate">{displayName(p)}</div>
+              </div>
+              <div className="text-[11px] text-[#444870] mt-0.5 pl-6">{getTotalOrders(p.id).toLocaleString()} 单</div>
             </div>
           ))}
         </div>
