@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useAuth } from './AuthContext'
-import type { Product, DailyEntry } from '@/lib/types'
+import type { Product, DailyEntry, PriceDetail } from '@/lib/types'
 import { displayName, pct, medalEmoji, medalLabel } from '@/lib/utils'
 
 export default function AnalysisPage({ products, daily, onDataRefresh }: {
