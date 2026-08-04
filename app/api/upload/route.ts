@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 
 export const maxDuration = 60
-
+export const dynamic = 'force-dynamic'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,6 +18,11 @@ function parseDate(val: unknown): string | null {
   const m2 = s.match(/^(\d{4}-\d{2}-\d{2})/)
   if (m2) return m2[1]
   return null
+}
+
+function rateStr(val: unknown): string {
+  if (val == null || val === '') return ''
+  return String(val).trim()
 }
 
 export async function POST(req: NextRequest) {
@@ -36,9 +41,23 @@ export async function POST(req: NextRequest) {
   const rows = XLSX.utils.sheet_to_json(ws, { defval: null }) as Record<string, unknown>[]
 
   const productMap: Record<string, { id: string; fullName: string }> = {}
+
+  // daily_orders buffer
   const dayBuf: Record<string, {
     productId: string; date: string
     orders: { units: number; price: number; isOrganic: boolean; isPaid: boolean; isRefund: boolean }[]
+  }> = {}
+
+  // creator_daily buffer: key = productId__date__creator__channel
+  const creatorBuf: Record<string, {
+    productId: string; date: string; creator: string; channel: string
+    orders: number; organic: number; paid: number; refund: number
+  }> = {}
+
+  // creator_commission buffer: key = productId__date__creator__type__rate
+  const commBuf: Record<string, {
+    productId: string; date: string; creator: string
+    commissionType: string; commissionRate: string; orders: number
   }> = {}
 
   let skipped = 0
@@ -53,22 +72,48 @@ export async function POST(req: NextRequest) {
     const estComm  = parseFloat(String(row['预估计佣金额'] || '0')) || 0
     const unitPrice = Math.round((estComm / units) * 100) / 100
     const isRefund  = row['已全部退货或全额退款'] === '是'
-    const isOrganic = !isRefund && row['标准佣金率'] != null && row['标准佣金率'] !== ''
-    const isPaid    = !isRefund && row['店铺广告佣金率'] != null && row['店铺广告佣金率'] !== ''
+    const stdRate   = rateStr(row['标准佣金率'])
+    const adRate    = rateStr(row['店铺广告佣金率'])
+    const isOrganic = !isRefund && stdRate !== ''
+    const isPaid    = !isRefund && adRate !== ''
+    const creator   = String(row['达人用户名'] || '').trim()
+    const channel   = String(row['内容形式'] || '').trim()   // 视频 / 直播
 
     if (!pid) { skipped++; continue }
 
     if (!productMap[pid]) productMap[pid] = { id: pid, fullName }
 
-    const key = `${pid}__${payDate}`
-    if (!dayBuf[key]) dayBuf[key] = { productId: pid, date: payDate, orders: [] }
-    dayBuf[key].orders.push({ units, price: unitPrice, isOrganic, isPaid, isRefund })
+    // ── daily_orders ──────────────────────────────────────────
+    const dayKey = `${pid}__${payDate}`
+    if (!dayBuf[dayKey]) dayBuf[dayKey] = { productId: pid, date: payDate, orders: [] }
+    dayBuf[dayKey].orders.push({ units, price: unitPrice, isOrganic, isPaid, isRefund })
+
+    // ── creator_daily ─────────────────────────────────────────
+    if (creator) {
+      const ck = `${pid}__${payDate}__${creator}__${channel}`
+      if (!creatorBuf[ck]) creatorBuf[ck] = { productId: pid, date: payDate, creator, channel, orders: 0, organic: 0, paid: 0, refund: 0 }
+      creatorBuf[ck].orders++
+      if (isOrganic) creatorBuf[ck].organic++
+      if (isPaid)    creatorBuf[ck].paid++
+      if (isRefund)  creatorBuf[ck].refund++
+
+      // ── creator_commission ──────────────────────────────────
+      if (!isRefund && stdRate) {
+        const commKey = `${pid}__${payDate}__${creator}__organic__${stdRate}`
+        if (!commBuf[commKey]) commBuf[commKey] = { productId: pid, date: payDate, creator, commissionType: 'organic', commissionRate: stdRate, orders: 0 }
+        commBuf[commKey].orders++
+      }
+      if (!isRefund && adRate) {
+        const commKey = `${pid}__${payDate}__${creator}__paid__${adRate}`
+        if (!commBuf[commKey]) commBuf[commKey] = { productId: pid, date: payDate, creator, commissionType: 'paid', commissionRate: adRate, orders: 0 }
+        commBuf[commKey].orders++
+      }
+    }
   }
 
   // Upsert products
   for (const p of Object.values(productMap)) {
-    const { data: existing } = await supabaseAdmin
-      .from('products').select('id').eq('id', p.id).single()
+    const { data: existing } = await supabaseAdmin.from('products').select('id').eq('id', p.id).single()
     if (!existing) {
       await supabaseAdmin.from('products').insert({ id: p.id, full_name: p.fullName, internal_name: '' })
     } else if (p.fullName) {
@@ -76,17 +121,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Build aggregates
-  const dailyRows: {
-    product_id: string; date: string
-    total_orders: number; total_units: number
-    organic_orders: number; paid_orders: number; refund_orders: number
-  }[] = []
-
-  const priceRows: {
-    product_id: string; date: string; unit_price: number
-    orders: number; units: number; organic: number; paid: number; refund: number
-  }[] = []
+  // Build daily_orders rows
+  const dailyRows: Record<string, unknown>[] = []
+  const priceRows: Record<string, unknown>[] = []
 
   for (const buf of Object.values(dayBuf)) {
     const { productId, date, orders } = buf
@@ -97,43 +134,49 @@ export async function POST(req: NextRequest) {
       totalOrders++
       if (!o.isRefund) totalUnits += o.units
       if (o.isOrganic) totalOrganic++
-      if (o.isPaid) totalPaid++
-      if (o.isRefund) totalRefund++
-
+      if (o.isPaid)    totalPaid++
+      if (o.isRefund)  totalRefund++
       if (!priceMap[o.price]) priceMap[o.price] = { orders: 0, units: 0, organic: 0, paid: 0, refund: 0 }
       priceMap[o.price].orders++
       if (!o.isRefund) priceMap[o.price].units += o.units
       if (o.isOrganic) priceMap[o.price].organic++
-      if (o.isPaid) priceMap[o.price].paid++
-      if (o.isRefund) priceMap[o.price].refund++
+      if (o.isPaid)    priceMap[o.price].paid++
+      if (o.isRefund)  priceMap[o.price].refund++
     }
 
-    dailyRows.push({
-      product_id: productId, date,
-      total_orders: totalOrders, total_units: totalUnits,
-      organic_orders: totalOrganic, paid_orders: totalPaid, refund_orders: totalRefund,
-    })
-
+    dailyRows.push({ product_id: productId, date, total_orders: totalOrders, total_units: totalUnits, organic_orders: totalOrganic, paid_orders: totalPaid, refund_orders: totalRefund })
     for (const [price, pd] of Object.entries(priceMap)) {
       priceRows.push({ product_id: productId, date, unit_price: parseFloat(price), ...pd })
     }
   }
 
+  const creatorRows = Object.values(creatorBuf).map(c => ({
+    product_id: c.productId, date: c.date, creator: c.creator, channel: c.channel,
+    orders: c.orders, organic_orders: c.organic, paid_orders: c.paid, refund_orders: c.refund,
+  }))
+
+  const commRows = Object.values(commBuf).map(c => ({
+    product_id: c.productId, date: c.date, creator: c.creator,
+    commission_type: c.commissionType, commission_rate: c.commissionRate, orders: c.orders,
+  }))
+
   const batchUpsert = async (table: string, data: Record<string, unknown>[], conflict: string) => {
     for (let i = 0; i < data.length; i += 500) {
-      const batch = data.slice(i, i + 500)
-      const { error } = await supabaseAdmin.from(table).upsert(batch, { onConflict: conflict })
+      const { error } = await supabaseAdmin.from(table).upsert(data.slice(i, i + 500), { onConflict: conflict })
       if (error) throw new Error(`${table}: ${error.message}`)
     }
   }
 
-  await batchUpsert('daily_orders', dailyRows as unknown as Record<string, unknown>[], 'product_id,date')
-  await batchUpsert('daily_prices', priceRows as unknown as Record<string, unknown>[], 'product_id,date,unit_price')
+  await batchUpsert('daily_orders',       dailyRows,  'product_id,date')
+  await batchUpsert('daily_prices',       priceRows,  'product_id,date,unit_price')
+  await batchUpsert('creator_daily',      creatorRows,'product_id,date,creator,channel')
+  await batchUpsert('creator_commission', commRows,   'product_id,date,creator,commission_type,commission_rate')
 
   return NextResponse.json({
     ok: true,
     imported: Object.values(dayBuf).reduce((s, b) => s + b.orders.length, 0),
     skipped,
     days: dailyRows.length,
+    creators: creatorRows.length,
   })
 }

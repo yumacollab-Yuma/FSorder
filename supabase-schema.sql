@@ -57,3 +57,42 @@ create policy "service write daily_prices" on daily_prices for all using (true);
 -- alter table daily_orders add column if not exists refund_orders int not null default 0;
 -- alter table daily_prices add column if not exists refund int not null default 0;
 -- ============================================================
+
+-- ============================================================
+-- 达人明细表（按产品+日期+达人+渠道聚合）
+-- ============================================================
+create table if not exists creator_daily (
+  id serial primary key,
+  product_id text not null references products(id),
+  date date not null,
+  creator text not null,
+  channel text not null default '',         -- 视频 / 直播
+  orders int not null default 0,
+  organic_orders int not null default 0,
+  paid_orders int not null default 0,
+  refund_orders int not null default 0,
+  unique(product_id, date, creator, channel)
+);
+
+-- 达人佣金率分布表（按产品+日期+达人+佣金率+类型聚合）
+create table if not exists creator_commission (
+  id serial primary key,
+  product_id text not null references products(id),
+  date date not null,
+  creator text not null,
+  commission_type text not null,            -- organic / paid
+  commission_rate text not null,            -- 原始字符串如 "10%"
+  orders int not null default 0,
+  unique(product_id, date, creator, commission_type, commission_rate)
+);
+
+alter table creator_daily enable row level security;
+alter table creator_commission enable row level security;
+
+create policy "public read creator_daily" on creator_daily for select using (true);
+create policy "public read creator_commission" on creator_commission for select using (true);
+create policy "service write creator_daily" on creator_daily for all using (true);
+create policy "service write creator_commission" on creator_commission for all using (true);
+
+-- 迁移（已有库执行）：
+-- 在 Supabase SQL Editor 执行上面的 create table 语句即可

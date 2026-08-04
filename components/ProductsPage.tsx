@@ -16,6 +16,11 @@ export default function ProductsPage() {
   const [pwInput, setPwInput] = useState('')
   const [clearing, setClearing] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  // Creator rename
+  const [showRename, setShowRename] = useState(false)
+  const [renameOld, setRenameOld] = useState('')
+  const [renameNew, setRenameNew] = useState('')
+  const [renaming, setRenaming] = useState(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { fetchProducts() }, [])
@@ -43,7 +48,6 @@ export default function ProductsPage() {
     } else if (res.status === 401) {
       showToast('密码错误')
     } else {
-      // 400 = no file = password accepted
       setAuthed(true); setPassword(pwInput); showToast('已验证')
     }
   }
@@ -58,8 +62,7 @@ export default function ProductsPage() {
     })
     setSaving(s => ({ ...s, [id]: false }))
     setEditing(e => { const n = { ...e }; delete n[id]; return n })
-    fetchProducts()
-    showToast('已保存')
+    fetchProducts(); showToast('已保存')
   }
 
   async function addProduct() {
@@ -80,6 +83,24 @@ export default function ProductsPage() {
     showToast('订单数据已清除')
   }
 
+  async function renameCreator() {
+    if (!renameOld.trim() || !renameNew.trim()) { showToast('原名和现名不能为空'); return }
+    setRenaming(true)
+    const res = await fetch('/api/creator-rename', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-upload-password': password },
+      body: JSON.stringify({ oldName: renameOld.trim(), newName: renameNew.trim() }),
+    })
+    const d = await res.json()
+    setRenaming(false)
+    if (d.ok) {
+      showToast(`已更新，共修改 ${d.updated} 条记录`)
+      setShowRename(false); setRenameOld(''); setRenameNew('')
+    } else {
+      showToast(d.error || '更改失败')
+    }
+  }
+
   const sorted = [...products].sort((a, b) => (a.internal_name || '\uffff').localeCompare(b.internal_name || '\uffff'))
 
   return (
@@ -90,10 +111,16 @@ export default function ProductsPage() {
           <p className="text-sm text-[#7e849e]">内部名称在所有分析页面中显示，替代商品 ID。</p>
         </div>
         {authed && (
-          <button onClick={() => setShowClearConfirm(true)}
-            className="px-3 py-2 text-xs rounded-lg border border-[#2a2d45] text-[#7e849e] hover:border-red-500 hover:text-red-400 transition-all">
-            清除订单数据
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => { setShowRename(true); setShowClearConfirm(false) }}
+              className="px-3 py-2 text-xs rounded-lg border border-[#2a2d45] text-[#7e849e] hover:border-[#6c63ff] hover:text-[#6c63ff] transition-all">
+              达人 ID 变更
+            </button>
+            <button onClick={() => { setShowClearConfirm(true); setShowRename(false) }}
+              className="px-3 py-2 text-xs rounded-lg border border-[#2a2d45] text-[#7e849e] hover:border-red-500 hover:text-red-400 transition-all">
+              清除订单数据
+            </button>
+          </div>
         )}
       </div>
 
@@ -102,15 +129,44 @@ export default function ProductsPage() {
         <div className="mb-6 p-4 rounded-xl bg-[#13151f] border border-[#2a2d45]">
           <div className="text-xs text-[#7e849e] mb-3">输入管理密码以编辑商品名称和上传数据</div>
           <div className="flex gap-2">
-            <input
-              type="password" placeholder="管理密码" value={pwInput}
+            <input type="password" placeholder="管理密码" value={pwInput}
               onChange={e => setPwInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && verifyPassword()}
-              className="flex-1 bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-3 py-2 text-sm outline-none focus:border-[#6c63ff]"
-            />
+              className="flex-1 bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-3 py-2 text-sm outline-none focus:border-[#6c63ff]" />
             <button onClick={verifyPassword}
               className="px-4 py-2 bg-[#6c63ff] text-white text-sm rounded-lg hover:opacity-85 transition-all">
               验证
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Creator rename dialog */}
+      {showRename && (
+        <div className="mb-6 p-4 rounded-xl bg-[#13151f] border border-[#6c63ff]/40">
+          <div className="text-sm font-semibold text-[#dde1f0] mb-1">达人 ID 变更</div>
+          <div className="text-xs text-[#7e849e] mb-4">将数据库中所有该达人的原名替换为现名，操作不可撤销。</div>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <div className="text-[11px] text-[#444870] uppercase tracking-wider mb-1.5">原名</div>
+              <input value={renameOld} onChange={e => setRenameOld(e.target.value)}
+                placeholder="输入达人原用户名"
+                className="w-full bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-3 py-2 text-sm text-[#dde1f0] outline-none focus:border-[#6c63ff] placeholder-[#444870]" />
+            </div>
+            <div>
+              <div className="text-[11px] text-[#444870] uppercase tracking-wider mb-1.5">现名</div>
+              <input value={renameNew} onChange={e => setRenameNew(e.target.value)}
+                placeholder="输入达人现用户名"
+                onKeyDown={e => e.key === 'Enter' && renameCreator()}
+                className="w-full bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-3 py-2 text-sm text-[#dde1f0] outline-none focus:border-[#6c63ff] placeholder-[#444870]" />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => { setShowRename(false); setRenameOld(''); setRenameNew('') }}
+              className="px-3 py-1.5 text-xs rounded-lg border border-[#2a2d45] text-[#7e849e]">取消</button>
+            <button onClick={renameCreator} disabled={renaming}
+              className="px-4 py-1.5 text-xs rounded-lg bg-[#6c63ff] text-white disabled:opacity-50">
+              {renaming ? '更改中...' : '更改合并'}
             </button>
           </div>
         </div>
@@ -142,12 +198,9 @@ export default function ProductsPage() {
             <div key={p.id} className={`flex items-center gap-4 px-4 py-3 rounded-xl bg-[#13151f] border transition-all ${isEditing ? 'border-[#6c63ff]' : 'border-[#2a2d45] hover:border-[#363a58]'}`}>
               <input
                 className="w-32 bg-transparent border-b border-dashed border-[#2a2d45] focus:border-[#6c63ff] text-sm font-semibold outline-none py-0.5 text-[#dde1f0] transition-all"
-                value={val}
-                placeholder={authed ? "设置名称..." : "—"}
-                disabled={!authed}
+                value={val} placeholder={authed ? '设置名称...' : '—'} disabled={!authed}
                 onChange={e => setEditing(ed => ({ ...ed, [p.id]: e.target.value }))}
-                onKeyDown={e => e.key === 'Enter' && saveName(p.id)}
-              />
+                onKeyDown={e => e.key === 'Enter' && saveName(p.id)} />
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-[#7e849e] truncate">{p.full_name || '暂无商品名称'}</div>
                 <div className="text-[10px] text-[#444870] font-mono mt-0.5">{p.id}</div>
@@ -185,14 +238,14 @@ export default function ProductsPage() {
             </div>
           </div>
         ) : (
-          <button onClick={() => setShowAdd(true)} className="mt-2 w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#363a58] text-[#444870] text-sm hover:border-[#6c63ff] hover:text-[#6c63ff] transition-all">
+          <button onClick={() => setShowAdd(true)}
+            className="mt-2 w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-dashed border-[#363a58] text-[#444870] text-sm hover:border-[#6c63ff] hover:text-[#6c63ff] transition-all">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             手动添加商品
           </button>
         )
       )}
 
-      {/* Toast */}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-lg bg-[#242840] border border-[#363a58] text-sm shadow-xl z-50">
           {toast}
