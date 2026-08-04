@@ -240,7 +240,7 @@ export default function AnalysisPage({ products, daily, onDataRefresh }: {
             <div key={p.id} onClick={() => selectProduct(p.id)}
               className={`px-3 py-2.5 border-b border-[#2a2d45] cursor-pointer transition-all ${currentPid === p.id ? 'bg-[rgba(108,99,255,0.15)] border-l-2 border-l-[#6c63ff] pl-2.5' : 'hover:bg-[#1c1f2e]'}`}>
               <div className="flex items-center gap-1.5">
-                <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0">{<span title={medalLabel(i)}>{medalEmoji(i)}</span>}</span>
+                <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0" title={medalLabel(i)}>{medalEmoji(i)}</span>
                 <div className="text-[13px] font-semibold text-[#dde1f0] leading-snug truncate">{displayName(p)}</div>
               </div>
               <div className="text-[11px] text-[#444870] mt-0.5 pl-6">{getTotalOrders(p.id).toLocaleString()} 单</div>

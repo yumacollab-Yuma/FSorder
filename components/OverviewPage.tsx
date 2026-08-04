@@ -168,7 +168,7 @@ export default function OverviewPage({ products, daily }: { products: Product[];
                 const color = PIE_COLORS[i % PIE_COLORS.length]
                 return (
                   <tr key={p.pid} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
-                    <td className="px-3 py-2.5 text-sm">{<span title={medalLabel(i)}>{medalEmoji(i)}</span>}</td>
+                    <td className="px-3 py-2.5 text-sm" title={medalLabel(i)}>{medalEmoji(i)}</td>
                     <td className="px-3 py-2.5"><div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full flex-shrink-0" style={{background:color}}/><div><div className="text-[13px] font-semibold text-[#dde1f0] leading-snug">{displayName(p.product)}</div><div className="text-[10px] font-mono text-[#444870]">{p.pid}</div></div></div></td>
                     <td className="px-3 py-2.5 tabular-nums font-semibold">{p.orders.toLocaleString()}</td>
                     <td className="px-3 py-2.5 tabular-nums text-[#3ecf8e]">{p.organic.toLocaleString()} <span className="text-[11px] text-[#444870]">{pct(p.organic,p.orders)}%</span></td>

@@ -107,13 +107,14 @@ export default function ProductCreatorPage({
               <div key={p.id} onClick={() => selectProduct(p.id)}
                 className={`px-3 py-2.5 border-b border-[#2a2d45] cursor-pointer transition-all ${selectedPid === p.id ? 'bg-[rgba(108,99,255,0.15)] border-l-2 border-l-[#6c63ff] pl-2.5' : 'hover:bg-[#1c1f2e]'}`}>
                 <div className="flex items-center gap-1.5">
-                  <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0">{<span title={medalLabel(i)}>{medalEmoji(i)}</span>}</span>
+                  <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0" title={medalLabel(i)}>{medalEmoji(i)}</span>
                   <div className={`text-[13px] font-semibold leading-snug truncate ${selectedPid === p.id ? 'text-[#dde1f0]' : 'text-[#7e849e]'}`}>{displayName(p)}</div>
                 </div>
                 <div className="text-[11px] text-[#444870] mt-0.5 pl-6">{totalOrd.toLocaleString()} 单</div>
               </div>
             )
-          })}
+            })
+          })()}
         </div>
       </div>
 
@@ -168,7 +169,7 @@ export default function ProductCreatorPage({
                       <tr><td colSpan={9} className="px-4 py-8 text-center text-xs text-[#444870]">暂无数据</td></tr>
                     ) : creatorList.map((c, i) => (
                       <tr key={c.creator} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
-                        <td className="px-3 py-2.5 text-sm">{<span title={medalLabel(i)}>{medalEmoji(i)}</span>}</td>
+                        <td className="px-3 py-2.5 text-sm" title={medalLabel(i)}>{medalEmoji(i)}</td>
                         <td className="px-3 py-2.5">
                           <div className="text-[13px] font-semibold text-[#dde1f0] max-w-[120px] truncate">{c.creator || '—'}</div>
                         </td>
