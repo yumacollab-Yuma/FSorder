@@ -180,28 +180,20 @@ function TrendChart({ dates, series }: {
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────
-export default function OverviewPage() {
-  const [products, setProducts] = useState<Product[]>([])
-  const [daily, setDaily] = useState<DailyEntry[]>([])
+export default function OverviewPage({ products, daily }: { products: Product[]; daily: DailyEntry[] }) {
   const [mode, setMode] = useState<'single' | 'range'>('range')
   const [singleDate, setSingleDate] = useState('')
   const [rangeStart, setRangeStart] = useState('')
   const [rangeEnd, setRangeEnd] = useState('')
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/data').then(r => r.json()).then(d => {
-      setProducts(d.products || [])
-      setDaily(d.daily || [])
-      setLoading(false)
-      const allDates = [...new Set((d.daily || []).map((e: DailyEntry) => e.date))].sort() as string[]
-      if (allDates.length) {
-        const last = allDates[allDates.length - 1]
-        setRangeStart(allDates[Math.max(0, allDates.length - 30)])
-        setRangeEnd(last); setSingleDate(last)
-      }
-    })
-  }, [])
+    const allDates = [...new Set(daily.map((e: DailyEntry) => e.date))].sort() as string[]
+    if (allDates.length) {
+      const last = allDates[allDates.length - 1]
+      setRangeStart(allDates[Math.max(0, allDates.length - 30)])
+      setRangeEnd(last); setSingleDate(last)
+    }
+  }, [daily])
 
   const allDates = [...new Set(daily.map(d => d.date))].sort()
   const minDate = allDates[0] || ''
@@ -273,9 +265,6 @@ export default function OverviewPage() {
   const trend = buildTrend(rangeEntries)
   const trendDates = trend.dates
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-[calc(100vh-52px)] text-[#444870] text-sm">加载中...</div>
-  )
   if (!daily.length) return (
     <div className="flex flex-col items-center justify-center h-[calc(100vh-52px)] text-[#444870] gap-2">
       <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" opacity={0.3}>

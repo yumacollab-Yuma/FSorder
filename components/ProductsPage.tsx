@@ -4,7 +4,7 @@ import { useAuth } from './AuthContext'
 
 type Product = { id: string; internal_name: string; full_name: string }
 
-export default function ProductsPage() {
+export default function ProductsPage({ onDataRefresh }: { onDataRefresh?: () => Promise<void> }) {
   const { password, authed, setAuthed, setPassword } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [editing, setEditing] = useState<Record<string, string>>({})
@@ -80,7 +80,7 @@ export default function ProductsPage() {
     setClearing(true)
     await fetch('/api/clear', { method: 'POST', headers: { 'x-upload-password': password } })
     setClearing(false); setShowClearConfirm(false)
-    showToast('订单数据已清除')
+    onDataRefresh?.(); showToast('订单数据已清除')
   }
 
   async function renameCreator() {

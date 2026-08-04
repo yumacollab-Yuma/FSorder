@@ -20,10 +20,12 @@ function pct(num: number, den: number) {
   return den ? Math.round(num / den * 100) : 0
 }
 
-export default function AnalysisPage() {
+export default function AnalysisPage({ products, daily, onDataRefresh }: {
+  products: Product[]
+  daily: DailyEntry[]
+  onDataRefresh: () => Promise<void>
+}) {
   const { password, authed, setAuthed, setPassword } = useAuth()
-  const [products, setProducts] = useState<Product[]>([])
-  const [daily, setDaily] = useState<DailyEntry[]>([])
   const [currentPid, setCurrentPid] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -37,15 +39,6 @@ export default function AnalysisPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [showPwModal, setShowPwModal] = useState(false)
   const [modalPw, setModalPw] = useState('')
-
-  useEffect(() => { fetchData() }, [])
-
-  async function fetchData() {
-    const res = await fetch('/api/data')
-    const d = await res.json()
-    setProducts(d.products || [])
-    setDaily(d.daily || [])
-  }
 
   function showToast(msg: string) {
     setToast(msg)
@@ -126,7 +119,7 @@ export default function AnalysisPage() {
     const res = await fetch('/api/upload', { method: 'POST', headers: { 'x-upload-password': pw }, body: fd })
     const d = await res.json()
     setUploading(false)
-    if (d.ok) { setUploadMsg(`✓ 已导入 ${d.imported} 条`); fetchData(); showToast('上传成功') }
+    if (d.ok) { setUploadMsg(`✓ 已导入 ${d.imported} 条`); onDataRefresh(); showToast('上传成功') }
     else if (res.status === 401) showToast('密码错误')
     else showToast(d.error || '上传失败')
   }
