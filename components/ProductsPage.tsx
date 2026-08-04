@@ -94,7 +94,7 @@ export default function ProductsPage() {
     const d = await res.json()
     setRenaming(false)
     if (d.ok) {
-      showToast(`已更新，共修改 ${d.updated} 条记录`)
+      showToast('达人名称已更新')
       setShowRename(false); setRenameOld(''); setRenameNew('')
     } else {
       showToast(d.error || '更改失败')

@@ -21,18 +21,15 @@ export async function POST(req: NextRequest) {
   }
 
   const tables = ['creator_daily', 'creator_commission']
-  let totalUpdated = 0
 
   for (const table of tables) {
-    const { count, error } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from(table)
       .update({ creator: newName.trim() })
       .eq('creator', oldName.trim())
-      .select('*', { count: 'exact', head: true })
 
     if (error) return NextResponse.json({ error: `${table}: ${error.message}` }, { status: 500 })
-    totalUpdated += count || 0
   }
 
-  return NextResponse.json({ ok: true, updated: totalUpdated })
+  return NextResponse.json({ ok: true })
 }
