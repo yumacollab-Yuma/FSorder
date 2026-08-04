@@ -1,31 +1,8 @@
 'use client'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useAuth } from './AuthContext'
-
-type Product = { id: string; internal_name: string; full_name: string }
-type PriceDetail = { orders: number; units: number; organic: number; paid: number; refund: number }
-type DailyEntry = {
-  product_id: string; date: string
-  total_orders: number; total_units: number
-  organic_orders: number; paid_orders: number; refund_orders: number
-  prices: Record<string, PriceDetail>
-}
-
-function displayName(p: Product | undefined) {
-  if (!p) return '未知'
-  return p.internal_name || '—'
-}
-
-function pct(num: number, den: number) {
-  return den ? Math.round(num / den * 100) : 0
-}
-
-function medal(i: number) {
-  if (i === 0) return <span title="第1名">🥇</span>
-  if (i === 1) return <span title="第2名">🥈</span>
-  if (i === 2) return <span title="第3名">🥉</span>
-  return <span className="text-[10px] text-[#444870] tabular-nums w-4 text-center">{i + 1}</span>
-}
+import type { Product, DailyEntry } from '@/lib/types'
+import { displayName, pct, medalEmoji, medalLabel } from '@/lib/utils'
 
 export default function AnalysisPage({ products, daily, onDataRefresh }: {
   products: Product[]
@@ -263,7 +240,7 @@ export default function AnalysisPage({ products, daily, onDataRefresh }: {
             <div key={p.id} onClick={() => selectProduct(p.id)}
               className={`px-3 py-2.5 border-b border-[#2a2d45] cursor-pointer transition-all ${currentPid === p.id ? 'bg-[rgba(108,99,255,0.15)] border-l-2 border-l-[#6c63ff] pl-2.5' : 'hover:bg-[#1c1f2e]'}`}>
               <div className="flex items-center gap-1.5">
-                <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0">{medal(i)}</span>
+                <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0">{<span title={medalLabel(i)}>{medalEmoji(i)}</span>}</span>
                 <div className="text-[13px] font-semibold text-[#dde1f0] leading-snug truncate">{displayName(p)}</div>
               </div>
               <div className="text-[11px] text-[#444870] mt-0.5 pl-6">{getTotalOrders(p.id).toLocaleString()} 单</div>

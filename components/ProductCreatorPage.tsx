@@ -1,27 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
-
-type Product = { id: string; internal_name: string; full_name: string }
-type CreatorDaily = {
-  product_id: string; date: string; creator: string; channel: string
-  orders: number; organic_orders: number; paid_orders: number; refund_orders: number
-}
-type CreatorCommission = {
-  product_id: string; date: string; creator: string
-  commission_type: string; commission_rate: string; orders: number
-}
-
-function medal(i: number) {
-  if (i === 0) return <span title="第1名">🥇</span>
-  if (i === 1) return <span title="第2名">🥈</span>
-  if (i === 2) return <span title="第3名">🥉</span>
-  return <span className="text-[10px] text-[#444870] tabular-nums">{i + 1}</span>
-}
-
-function displayName(p: Product | undefined) {
-  return p?.internal_name || p?.full_name || p?.id || '未知'
-}
-function pct(n: number, d: number) { return d ? Math.round(n / d * 100) : 0 }
+import type { Product, CreatorDaily, CreatorCommission } from '@/lib/types'
+import { displayName, pct, medalEmoji, medalLabel } from '@/lib/utils'
 
 export default function ProductCreatorPage({
   products, creatorDaily, creatorCommission,
@@ -118,17 +98,16 @@ export default function ProductCreatorPage({
           <div className="text-[10px] font-semibold text-[#444870] uppercase tracking-widest mb-1">选择产品</div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {[...products].sort((a, b) => {
-            const aOrders = creatorDaily.filter(d => d.product_id === a.id).reduce((s, d) => s + d.orders, 0)
-            const bOrders = creatorDaily.filter(d => d.product_id === b.id).reduce((s, d) => s + d.orders, 0)
-            return bOrders - aOrders
-          }).map((p, i) => {
-            const totalOrd = creatorDaily.filter(d => d.product_id === p.id).reduce((s, d) => s + d.orders, 0)
-            return (
+          {(() => {
+            const totals: Record<string, number> = {}
+            for (const d of creatorDaily) totals[d.product_id] = (totals[d.product_id] || 0) + d.orders
+            return [...products].sort((a, b) => (totals[b.id] || 0) - (totals[a.id] || 0)).map((p, i) => {
+              const totalOrd = totals[p.id] || 0
+              return (
               <div key={p.id} onClick={() => selectProduct(p.id)}
                 className={`px-3 py-2.5 border-b border-[#2a2d45] cursor-pointer transition-all ${selectedPid === p.id ? 'bg-[rgba(108,99,255,0.15)] border-l-2 border-l-[#6c63ff] pl-2.5' : 'hover:bg-[#1c1f2e]'}`}>
                 <div className="flex items-center gap-1.5">
-                  <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0">{medal(i)}</span>
+                  <span className="flex items-center justify-center w-5 text-sm leading-none flex-shrink-0">{<span title={medalLabel(i)}>{medalEmoji(i)}</span>}</span>
                   <div className={`text-[13px] font-semibold leading-snug truncate ${selectedPid === p.id ? 'text-[#dde1f0]' : 'text-[#7e849e]'}`}>{displayName(p)}</div>
                 </div>
                 <div className="text-[11px] text-[#444870] mt-0.5 pl-6">{totalOrd.toLocaleString()} 单</div>
@@ -189,7 +168,7 @@ export default function ProductCreatorPage({
                       <tr><td colSpan={9} className="px-4 py-8 text-center text-xs text-[#444870]">暂无数据</td></tr>
                     ) : creatorList.map((c, i) => (
                       <tr key={c.creator} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
-                        <td className="px-3 py-2.5 text-sm">{medal(i)}</td>
+                        <td className="px-3 py-2.5 text-sm">{<span title={medalLabel(i)}>{medalEmoji(i)}</span>}</td>
                         <td className="px-3 py-2.5">
                           <div className="text-[13px] font-semibold text-[#dde1f0] max-w-[120px] truncate">{c.creator || '—'}</div>
                         </td>

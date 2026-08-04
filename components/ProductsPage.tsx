@@ -1,8 +1,7 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { useAuth } from './AuthContext'
-
-type Product = { id: string; internal_name: string; full_name: string }
+import type { Product } from '@/lib/types'
 
 export default function ProductsPage({ onDataRefresh }: { onDataRefresh?: () => Promise<void> }) {
   const { password, authed, setAuthed, setPassword } = useAuth()
