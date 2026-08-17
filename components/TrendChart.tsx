@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 
 type Series = { label: string; color: string; values: number[]; dash?: number[] }
 
-export default function TrendChart({ dates, series }: { dates: string[]; series: Series[] }) {
+export default function TrendChart({ dates, series, height = 240 }: { dates: string[]; series: Series[]; height?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; idx: number } | null>(null)
 
@@ -11,7 +11,7 @@ export default function TrendChart({ dates, series }: { dates: string[]; series:
     const canvas = canvasRef.current; if (!canvas) return
     const parent = canvas.parentElement!
     const dpr = window.devicePixelRatio || 1
-    const W = parent.clientWidth - 4, H = 240
+    const W = parent.clientWidth - 4, H = height
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px'
     canvas.width = W * dpr; canvas.height = H * dpr
     const ctx = canvas.getContext('2d')!

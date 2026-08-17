@@ -26,6 +26,12 @@ export default function Home() {
   const [creatorDaily, setCreatorDaily] = useState<CreatorDaily[]>([])
   const [creatorCommission, setCreatorCommission] = useState<CreatorCommission[]>([])
   const [loading, setLoading] = useState(true)
+  const [creatorNavTarget, setCreatorNavTarget] = useState<{ creator: string; pid: string } | null>(null)
+
+  function navigateToCreator(creator: string, pid: string) {
+    setCreatorNavTarget({ creator, pid })
+    setTab('creator-analysis')
+  }
 
   const fetchData = useCallback(async () => {
     const res = await fetch('/api/data')
@@ -67,8 +73,13 @@ export default function Home() {
         <>
           {tab === 'overview'        && <OverviewPage products={products} daily={daily} />}
           {tab === 'analysis'        && <AnalysisPage products={products} daily={daily} onDataRefresh={fetchData} />}
-          {tab === 'product-creator' && <ProductCreatorPage products={products} creatorDaily={creatorDaily} creatorCommission={creatorCommission} />}
-          {tab === 'creator-analysis'&& <CreatorAnalysisPage products={products} creatorDaily={creatorDaily} />}
+          {tab === 'product-creator' && <ProductCreatorPage products={products} creatorDaily={creatorDaily} creatorCommission={creatorCommission} onNavigateToCreator={navigateToCreator} />}
+          {tab === 'creator-analysis'&& <CreatorAnalysisPage
+              products={products}
+              creatorDaily={creatorDaily}
+              initialCreator={creatorNavTarget?.creator}
+              initialPid={creatorNavTarget?.pid}
+            />}
           {tab === 'products'        && <ProductsPage onDataRefresh={fetchData} />}
         </>
       )}

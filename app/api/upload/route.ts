@@ -42,19 +42,17 @@ export async function POST(req: NextRequest) {
 
   const productMap: Record<string, { id: string; fullName: string }> = {}
 
-  // daily_orders buffer
   const dayBuf: Record<string, {
     productId: string; date: string
     orders: { units: number; price: number; isOrganic: boolean; isPaid: boolean; isRefund: boolean }[]
   }> = {}
 
-  // creator_daily buffer: key = productId__date__creator__channel
+  // creator_daily buffer: key = productId__date__creator__channel__contentId
   const creatorBuf: Record<string, {
-    productId: string; date: string; creator: string; channel: string
+    productId: string; date: string; creator: string; channel: string; contentId: string
     orders: number; organic: number; paid: number; refund: number
   }> = {}
 
-  // creator_commission buffer: key = productId__date__creator__type__rate
   const commBuf: Record<string, {
     productId: string; date: string; creator: string
     commissionType: string; commissionRate: string; orders: number
@@ -74,36 +72,38 @@ export async function POST(req: NextRequest) {
     const isRefund  = row['已全部退货或全额退款'] === '是'
     const stdRate   = rateStr(row['标准佣金率'])
     const adRate    = rateStr(row['店铺广告佣金率'])
-    const isOrganic = !isRefund && stdRate !== ''
-    const isPaid    = !isRefund && adRate !== ''
+    // 自然流/广告流包含退货单，是独立维度
+    const isOrganic = stdRate !== ''
+    const isPaid    = adRate !== ''
     const creator   = String(row['达人用户名'] || '').trim()
-    const channel   = String(row['内容形式'] || '').trim()   // 视频 / 直播
+    const channel   = String(row['内容形式'] || '').trim()
+    const contentId = String(row['内容ID'] || '').trim()
 
     if (!pid) { skipped++; continue }
 
     if (!productMap[pid]) productMap[pid] = { id: pid, fullName }
 
-    // ── daily_orders ──────────────────────────────────────────
+    // ── daily_orders ──
     const dayKey = `${pid}__${payDate}`
     if (!dayBuf[dayKey]) dayBuf[dayKey] = { productId: pid, date: payDate, orders: [] }
+    // 件数不扣退货，直接累加所有件数
     dayBuf[dayKey].orders.push({ units, price: unitPrice, isOrganic, isPaid, isRefund })
 
-    // ── creator_daily ─────────────────────────────────────────
+    // ── creator_daily (含 content_id) ──
     if (creator) {
-      const ck = `${pid}__${payDate}__${creator}__${channel}`
-      if (!creatorBuf[ck]) creatorBuf[ck] = { productId: pid, date: payDate, creator, channel, orders: 0, organic: 0, paid: 0, refund: 0 }
+      const ck = `${pid}__${payDate}__${creator}__${channel}__${contentId}`
+      if (!creatorBuf[ck]) creatorBuf[ck] = { productId: pid, date: payDate, creator, channel, contentId, orders: 0, organic: 0, paid: 0, refund: 0 }
       creatorBuf[ck].orders++
       if (isOrganic) creatorBuf[ck].organic++
       if (isPaid)    creatorBuf[ck].paid++
       if (isRefund)  creatorBuf[ck].refund++
 
-      // ── creator_commission ──────────────────────────────────
-      if (!isRefund && stdRate) {
+      if (stdRate) {
         const commKey = `${pid}__${payDate}__${creator}__organic__${stdRate}`
         if (!commBuf[commKey]) commBuf[commKey] = { productId: pid, date: payDate, creator, commissionType: 'organic', commissionRate: stdRate, orders: 0 }
         commBuf[commKey].orders++
       }
-      if (!isRefund && adRate) {
+      if (adRate) {
         const commKey = `${pid}__${payDate}__${creator}__paid__${adRate}`
         if (!commBuf[commKey]) commBuf[commKey] = { productId: pid, date: payDate, creator, commissionType: 'paid', commissionRate: adRate, orders: 0 }
         commBuf[commKey].orders++
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Build daily_orders rows
+  // Build daily_orders rows — 件数累加所有订单（含退货）
   const dailyRows: Record<string, unknown>[] = []
   const priceRows: Record<string, unknown>[] = []
 
@@ -132,13 +132,13 @@ export async function POST(req: NextRequest) {
 
     for (const o of orders) {
       totalOrders++
-      if (!o.isRefund) totalUnits += o.units
+      totalUnits += o.units   // 不扣退货件数
       if (o.isOrganic) totalOrganic++
       if (o.isPaid)    totalPaid++
       if (o.isRefund)  totalRefund++
       if (!priceMap[o.price]) priceMap[o.price] = { orders: 0, units: 0, organic: 0, paid: 0, refund: 0 }
       priceMap[o.price].orders++
-      if (!o.isRefund) priceMap[o.price].units += o.units
+      priceMap[o.price].units += o.units
       if (o.isOrganic) priceMap[o.price].organic++
       if (o.isPaid)    priceMap[o.price].paid++
       if (o.isRefund)  priceMap[o.price].refund++
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
   }
 
   const creatorRows = Object.values(creatorBuf).map(c => ({
-    product_id: c.productId, date: c.date, creator: c.creator, channel: c.channel,
+    product_id: c.productId, date: c.date, creator: c.creator, channel: c.channel, content_id: c.contentId,
     orders: c.orders, organic_orders: c.organic, paid_orders: c.paid, refund_orders: c.refund,
   }))
 
@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
 
   await batchUpsert('daily_orders',       dailyRows,  'product_id,date')
   await batchUpsert('daily_prices',       priceRows,  'product_id,date,unit_price')
-  await batchUpsert('creator_daily',      creatorRows,'product_id,date,creator,channel')
+  await batchUpsert('creator_daily',      creatorRows,'product_id,date,creator,channel,content_id')
   await batchUpsert('creator_commission', commRows,   'product_id,date,creator,commission_type,commission_rate')
 
   return NextResponse.json({

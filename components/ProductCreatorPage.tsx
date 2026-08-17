@@ -4,11 +4,12 @@ import type { Product, CreatorDaily, CreatorCommission } from '@/lib/types'
 import { displayName, pct, medalEmoji, medalLabel } from '@/lib/utils'
 
 export default function ProductCreatorPage({
-  products, creatorDaily, creatorCommission,
+  products, creatorDaily, creatorCommission, onNavigateToCreator,
 }: {
   products: Product[]
   creatorDaily: CreatorDaily[]
   creatorCommission: CreatorCommission[]
+  onNavigateToCreator?: (creator: string, pid: string) => void
 }) {
   const [selectedPid, setSelectedPid] = useState<string>('')
   const [rangeStart, setRangeStart] = useState('')
@@ -171,7 +172,10 @@ export default function ProductCreatorPage({
                       <tr key={c.creator} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
                         <td className="px-3 py-2.5 text-sm" title={medalLabel(i)}>{medalEmoji(i)}</td>
                         <td className="px-3 py-2.5">
-                          <div className="text-[13px] font-semibold text-[#dde1f0] max-w-[120px] truncate">{c.creator || '—'}</div>
+                          <div
+                            className={`text-[13px] font-semibold max-w-[120px] truncate ${onNavigateToCreator ? 'text-[#6c63ff] cursor-pointer hover:underline' : 'text-[#dde1f0]'}`}
+                            onClick={() => onNavigateToCreator && c.creator && onNavigateToCreator(c.creator, selectedPid)}
+                          >{c.creator || '—'}</div>
                         </td>
                         <td className="px-3 py-2.5">
                           <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${c.channels.includes('视频') && c.channels.includes('直播') ? 'bg-[rgba(108,99,255,0.15)] text-[#a78bfa]' : c.channels.includes('直播') ? 'bg-[rgba(248,113,113,0.15)] text-[#f87171]' : 'bg-[rgba(56,189,248,0.15)] text-[#38bdf8]'}`}>

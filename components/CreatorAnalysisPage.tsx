@@ -7,20 +7,36 @@ import TrendChart from './TrendChart'
 const LINE_COLORS = ['#6c63ff','#3ecf8e','#f5a623','#e85d75','#38bdf8','#a78bfa','#fb923c','#34d399']
 
 export default function CreatorAnalysisPage({
-  products, creatorDaily,
+  products, creatorDaily, initialCreator, initialPid,
 }: {
   products: Product[]
   creatorDaily: CreatorDaily[]
+  initialCreator?: string
+  initialPid?: string
 }) {
   const [creatorSearch, setCreatorSearch] = useState('')
-  const [selectedCreator, setSelectedCreator] = useState('')
-  const [selectedPids, setSelectedPids] = useState<Set<string>>(new Set())
-  const [rangeStart, setRangeStart] = useState('')
-  const [rangeEnd, setRangeEnd] = useState('')
+  const [selectedCreator, setSelectedCreator] = useState(initialCreator || '')
+  const [selectedPids, setSelectedPids] = useState<Set<string>>(
+    initialPid ? new Set([initialPid]) : new Set()
+  )
+  const [rangeStart, setRangeStart] = useState(() => {
+    if (initialCreator) {
+      const dates = creatorDaily.filter(d => d.creator === initialCreator).map(d => d.date).sort()
+      return dates[0] || ''
+    }
+    return ''
+  })
+  const [rangeEnd, setRangeEnd] = useState(() => {
+    if (initialCreator) {
+      const dates = creatorDaily.filter(d => d.creator === initialCreator).map(d => d.date).sort()
+      return dates[dates.length - 1] || ''
+    }
+    return ''
+  })
   const [channelFilter, setChannelFilter] = useState<'all' | '视频' | '直播'>('all')
   const [metricMode, setMetricMode] = useState<'total' | 'breakdown'>('total')
+  const [expandedContent, setExpandedContent] = useState<string | null>(null)
 
-  // All creators sorted by total orders across all products
   const creatorTotals: Record<string, number> = {}
   for (const d of creatorDaily) {
     if (d.creator) creatorTotals[d.creator] = (creatorTotals[d.creator] || 0) + d.orders
@@ -31,12 +47,12 @@ export default function CreatorAnalysisPage({
 
   function selectCreator(c: string) {
     setSelectedCreator(c)
-    // Default: all products this creator has data for
     const pids = new Set(creatorDaily.filter(d => d.creator === c).map(d => d.product_id))
     setSelectedPids(pids)
     const dates = creatorDaily.filter(d => d.creator === c).map(d => d.date).sort()
     if (dates.length) { setRangeStart(dates[0]); setRangeEnd(dates[dates.length - 1]) }
     setChannelFilter('all')
+    setExpandedContent(null)
   }
 
   function togglePid(pid: string) {
@@ -65,7 +81,6 @@ export default function CreatorAnalysisPage({
     if (t === '30d') { setRangeStart(allDates[Math.max(0, allDates.length - 30)]); setRangeEnd(last) }
   }
 
-  // Filtered entries
   const filtered = creatorDaily.filter(d =>
     d.creator === selectedCreator &&
     d.date >= rangeStart && d.date <= rangeEnd &&
@@ -75,16 +90,13 @@ export default function CreatorAnalysisPage({
 
   const trendDates = allDates.filter(d => d >= rangeStart && d <= rangeEnd)
 
-  // Build trend series
   function buildTrendSeries() {
     if (metricMode === 'total') {
-      // One line: total orders per day
       const byDate: Record<string, number> = {}
       for (const d of trendDates) byDate[d] = 0
       for (const e of filtered) { if (byDate[e.date] !== undefined) byDate[e.date] += e.orders }
       return [{ label: '总订单', color: '#6c63ff', values: trendDates.map(d => byDate[d] || 0) }]
     } else {
-      // 3 lines: total, organic, paid
       const byDate: Record<string, { total: number; organic: number; paid: number }> = {}
       for (const d of trendDates) byDate[d] = { total: 0, organic: 0, paid: 0 }
       for (const e of filtered) {
@@ -102,7 +114,6 @@ export default function CreatorAnalysisPage({
     }
   }
 
-  // Summary stats
   const totalOrders  = filtered.reduce((s, d) => s + d.orders, 0)
   const totalOrganic = filtered.reduce((s, d) => s + d.organic_orders, 0)
   const totalPaid    = filtered.reduce((s, d) => s + d.paid_orders, 0)
@@ -110,7 +121,6 @@ export default function CreatorAnalysisPage({
   const videoOrders  = filtered.filter(d => d.channel === '视频').reduce((s, d) => s + d.orders, 0)
   const liveOrders   = filtered.filter(d => d.channel === '直播').reduce((s, d) => s + d.orders, 0)
 
-  // Per-product summary
   const pidSummary = [...selectedPids].map(pid => {
     const entries = filtered.filter(d => d.product_id === pid)
     return {
@@ -119,6 +129,33 @@ export default function CreatorAnalysisPage({
       orders: entries.reduce((s, d) => s + d.orders, 0),
     }
   }).filter(p => p.orders > 0).sort((a, b) => b.orders - a.orders)
+
+  // Content ID analysis per product
+  function getContentSummary(pid: string) {
+    const entries = filtered.filter(d => d.product_id === pid && d.content_id)
+    const contentMap: Record<string, { orders: number; organic: number; paid: number; refund: number; dates: string[] }> = {}
+    for (const e of entries) {
+      if (!e.content_id) continue
+      if (!contentMap[e.content_id]) contentMap[e.content_id] = { orders: 0, organic: 0, paid: 0, refund: 0, dates: [] }
+      contentMap[e.content_id].orders  += e.orders
+      contentMap[e.content_id].organic += e.organic_orders
+      contentMap[e.content_id].paid    += e.paid_orders
+      contentMap[e.content_id].refund  += e.refund_orders
+      contentMap[e.content_id].dates.push(e.date)
+    }
+    return Object.entries(contentMap)
+      .map(([cid, v]) => ({ contentId: cid, ...v }))
+      .sort((a, b) => b.orders - a.orders)
+  }
+
+  // Trend for a specific content_id
+  function buildContentTrend(contentId: string) {
+    const entries = filtered.filter(d => d.content_id === contentId)
+    const byDate: Record<string, number> = {}
+    for (const d of trendDates) byDate[d] = 0
+    for (const e of entries) { if (byDate[e.date] !== undefined) byDate[e.date] += e.orders }
+    return [{ label: '订单', color: '#6c63ff', values: trendDates.map(d => byDate[d] || 0) }]
+  }
 
   return (
     <div className="flex" style={{ height: 'calc(100vh - 52px)' }}>
@@ -155,14 +192,14 @@ export default function CreatorAnalysisPage({
               <div className="text-xs text-[#444870] mt-1">覆盖 {creatorProducts.length} 个产品</div>
             </div>
 
-            {/* Product multi-select + channel filter */}
+            {/* Product multi-select */}
             <div className="bg-[#13151f] border border-[#2a2d45] rounded-xl p-4 mb-4">
               <div className="text-[11px] text-[#444870] uppercase tracking-wider mb-2">筛选产品</div>
               <div className="flex flex-wrap gap-2">
                 {creatorProducts.map((p, i) => (
                   <button key={p.id} onClick={() => togglePid(p.id)}
                     className={`px-2.5 py-1 text-xs rounded-lg border transition-all font-medium ${selectedPids.has(p.id) ? 'text-white border-transparent' : 'text-[#7e849e] border-[#2a2d45] bg-[#1c1f2e]'}`}
-                    style={selectedPids.has(p.id) ? { background: LINE_COLORS[i % LINE_COLORS.length], borderColor: LINE_COLORS[i % LINE_COLORS.length] } : {}}>
+                    style={selectedPids.has(p.id) ? { background: LINE_COLORS[creatorProducts.indexOf(p) % LINE_COLORS.length], borderColor: LINE_COLORS[creatorProducts.indexOf(p) % LINE_COLORS.length] } : {}}>
                     {displayName(p)}
                   </button>
                 ))}
@@ -198,9 +235,9 @@ export default function CreatorAnalysisPage({
             {/* KPI cards */}
             <div className="grid grid-cols-6 gap-3 mb-6">
               {[
-                { label: '总订单', value: totalOrders, color: '', sub: '成交+退货' },
-                { label: '视频单', value: videoOrders, color: 'text-[#38bdf8]', sub: `${pct(videoOrders, totalOrders)}%` },
-                { label: '直播单', value: liveOrders,  color: 'text-[#a78bfa]', sub: `${pct(liveOrders, totalOrders)}%` },
+                { label: '总订单', value: totalOrders,  color: '',               sub: '成交+退货' },
+                { label: '视频单', value: videoOrders,  color: 'text-[#38bdf8]', sub: `${pct(videoOrders, totalOrders)}%` },
+                { label: '直播单', value: liveOrders,   color: 'text-[#a78bfa]', sub: `${pct(liveOrders, totalOrders)}%` },
                 { label: '自然流', value: totalOrganic, color: 'text-[#3ecf8e]', sub: `${pct(totalOrganic, totalOrders)}%` },
                 { label: '广告流', value: totalPaid,    color: 'text-[#f5a623]', sub: `${pct(totalPaid, totalOrders)}%` },
                 { label: '退货',   value: totalRefund,  color: 'text-[#e85d75]', sub: `${pct(totalRefund, totalOrders)}% 退货率` },
@@ -229,42 +266,58 @@ export default function CreatorAnalysisPage({
               <TrendChart dates={trendDates} series={buildTrendSeries()} />
             </div>
 
-            {/* Per-product breakdown */}
-            {pidSummary.length > 1 && (
-              <div className="bg-[#13151f] border border-[#2a2d45] rounded-xl overflow-hidden">
-                <div className="px-4 py-3 bg-[#1c1f2e] text-[11px] font-semibold text-[#444870] uppercase tracking-wider">产品明细</div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-[#1c1f2e] border-t border-[#2a2d45]">
-                      {['产品','订单数','占比'].map(h => (
-                        <th key={h} className="px-4 py-2 text-left text-[11px] text-[#444870] font-semibold uppercase tracking-wider">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pidSummary.map((p, i) => (
-                      <tr key={p.pid} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full" style={{ background: LINE_COLORS[i % LINE_COLORS.length] }} />
-                            <span className="text-[13px] font-semibold text-[#dde1f0]">{displayName(p.product)}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2.5 tabular-nums font-semibold">{p.orders.toLocaleString()}</td>
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-24 bg-[#2a2d45] rounded-full overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${pct(p.orders, totalOrders)}%`, background: LINE_COLORS[i % LINE_COLORS.length] }} />
+            {/* Per-product breakdown with content analysis */}
+            {pidSummary.map((p, pi) => {
+              const contentList = getContentSummary(p.pid)
+              const hasContent = contentList.length > 0
+              const isExpanded = expandedContent === p.pid
+
+              return (
+                <div key={p.pid} className="bg-[#13151f] border border-[#2a2d45] rounded-xl overflow-hidden mb-4">
+                  {/* Product header */}
+                  <div className="px-4 py-3 bg-[#1c1f2e] flex items-center gap-3">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: LINE_COLORS[pi % LINE_COLORS.length] }} />
+                    <span className="text-sm font-semibold text-[#dde1f0]">{displayName(p.product)}</span>
+                    <span className="text-xs text-[#444870] ml-1">{p.orders.toLocaleString()} 单</span>
+                    {hasContent && (
+                      <button onClick={() => setExpandedContent(isExpanded ? null : p.pid)}
+                        className="ml-auto text-xs text-[#6c63ff] hover:text-white transition-all px-2.5 py-1 rounded-md border border-[#6c63ff]/30 hover:bg-[#6c63ff]">
+                        {isExpanded ? '收起内容' : `查看 ${contentList.length} 个内容`}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Content list */}
+                  {isExpanded && hasContent && (
+                    <div className="p-4">
+                      <div className="flex flex-col gap-4">
+                        {contentList.map((c, ci) => (
+                          <div key={c.contentId} className="border border-[#2a2d45] rounded-xl overflow-hidden">
+                            {/* Content header */}
+                            <div className="px-4 py-2.5 bg-[#1c1f2e] flex items-center gap-3">
+                              <span className="text-[11px] font-bold text-[#6c63ff] bg-[rgba(108,99,255,0.15)] px-2 py-0.5 rounded">
+                                视频{ci + 1}
+                              </span>
+                              <span className="text-[11px] text-[#444870] font-mono truncate max-w-[200px]">{c.contentId}</span>
+                              <div className="ml-auto flex items-center gap-4 text-xs">
+                                <span className="font-semibold text-[#dde1f0]">{c.orders} 单</span>
+                                <span className="text-[#3ecf8e]">自然 {pct(c.organic, c.orders)}%</span>
+                                <span className="text-[#f5a623]">广告 {pct(c.paid, c.orders)}%</span>
+                                {c.refund > 0 && <span className="text-[#e85d75]">退货 {pct(c.refund, c.orders)}%</span>}
+                              </div>
                             </div>
-                            <span className="text-xs text-[#444870]">{pct(p.orders, totalOrders)}%</span>
+                            {/* Content trend */}
+                            <div className="p-4">
+                              <TrendChart dates={trendDates} series={buildContentTrend(c.contentId)} height={120} />
+                            </div>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </>
         )}
       </div>

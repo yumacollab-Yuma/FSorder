@@ -7,7 +7,7 @@ export type DailyEntry = {
   prices: Record<string, PriceDetail>
 }
 export type CreatorDaily = {
-  product_id: string; date: string; creator: string; channel: string
+  product_id: string; date: string; creator: string; channel: string; content_id: string
   orders: number; organic_orders: number; paid_orders: number; refund_orders: number
 }
 export type CreatorCommission = {
