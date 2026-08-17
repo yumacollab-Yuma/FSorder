@@ -12,9 +12,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '密码错误' }, { status: 401 })
   }
 
-  // Delete order data only, preserve products + internal names
   await supabaseAdmin.from('daily_prices').delete().neq('id', 0)
   await supabaseAdmin.from('daily_orders').delete().neq('id', 0)
+  await supabaseAdmin.from('creator_daily_prices').delete().neq('id', 0)
+  await supabaseAdmin.from('creator_daily').delete().neq('id', 0)
+  await supabaseAdmin.from('creator_commission').delete().neq('id', 0)
 
   return NextResponse.json({ ok: true })
 }

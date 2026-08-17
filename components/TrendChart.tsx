@@ -2,8 +2,16 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 
 type Series = { label: string; color: string; values: number[]; dash?: number[] }
+type PriceDetail = { orders: number; units: number; organic: number; paid: number; refund: number }
 
-export default function TrendChart({ dates, series, height = 240 }: { dates: string[]; series: Series[]; height?: number }) {
+export default function TrendChart({
+  dates, series, height = 240, prices,
+}: {
+  dates: string[]
+  series: Series[]
+  height?: number
+  prices?: Record<string, Record<string, PriceDetail>>  // date -> price -> detail
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; idx: number } | null>(null)
 
@@ -44,7 +52,6 @@ export default function TrendChart({ dates, series, height = 240 }: { dates: str
     const yPos = (v: number) => padT + chartH - (v / maxVal) * chartH
 
     for (const s of series) {
-      // Area fill
       ctx.beginPath()
       s.values.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v)))
       ctx.lineTo(xPos(s.values.length - 1), padT + chartH)
@@ -52,14 +59,12 @@ export default function TrendChart({ dates, series, height = 240 }: { dates: str
       const g = ctx.createLinearGradient(0, padT, 0, padT + chartH)
       g.addColorStop(0, s.color + '28'); g.addColorStop(1, s.color + '00')
       ctx.fillStyle = g; ctx.fill()
-      // Line
       ctx.beginPath(); ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.lineJoin = 'round'
       ctx.setLineDash(s.dash || [])
       s.values.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v)))
       ctx.stroke(); ctx.setLineDash([])
     }
 
-    // Legend
     let lx = padL
     for (const s of series) {
       ctx.fillStyle = s.color; ctx.fillRect(lx, 8, 14, 2.5)
@@ -70,7 +75,7 @@ export default function TrendChart({ dates, series, height = 240 }: { dates: str
 
     canvas.dataset.padL = String(padL); canvas.dataset.padR = String(padR)
     canvas.dataset.chartW = String(chartW); canvas.dataset.W = String(W); canvas.dataset.len = String(dates.length)
-  }, [dates, series])
+  }, [dates, series, height])
 
   useEffect(() => { draw() }, [draw])
   useEffect(() => { window.addEventListener('resize', draw); return () => window.removeEventListener('resize', draw) }, [draw])
@@ -86,21 +91,45 @@ export default function TrendChart({ dates, series, height = 240 }: { dates: str
     setTooltip({ x: e.clientX, y: e.clientY, idx: Math.min(len - 1, Math.max(0, Math.round((mx - padL) / chartW * (len - 1)))) })
   }
 
+  const tooltipDate = tooltip ? dates[tooltip.idx] : null
+  const tooltipPrices = tooltipDate && prices ? prices[tooltipDate] : null
+  const sortedPrices = tooltipPrices
+    ? Object.entries(tooltipPrices).sort((a, b) => b[1].orders - a[1].orders)
+    : []
+
+  const tooltipLeft = tooltip ? (tooltip.x + 220 > window.innerWidth ? tooltip.x - 230 : tooltip.x + 12) : 0
+  const tooltipTop  = tooltip ? Math.max(8, tooltip.y - 60) : 0
+
   return (
     <div className="relative">
       <canvas ref={canvasRef} height={240} onMouseMove={handleMove} onMouseLeave={() => setTooltip(null)} style={{ cursor: 'crosshair' }} />
       {tooltip && (
-        <div className="fixed z-50 pointer-events-none bg-[#242840] border border-[#363a58] rounded-xl p-3 shadow-2xl min-w-[160px]"
-          style={{ left: tooltip.x + 12, top: tooltip.y - 60 }}>
-          <div className="text-xs font-bold text-[#dde1f0] mb-2 pb-1.5 border-b border-[#2a2d45]">{dates[tooltip.idx]}</div>
+        <div className="fixed z-50 pointer-events-none bg-[#242840] border border-[#363a58] rounded-xl p-3 shadow-2xl min-w-[180px] max-w-[260px]"
+          style={{ left: tooltipLeft, top: tooltipTop }}>
+          <div className="text-xs font-bold text-[#dde1f0] mb-2 pb-1.5 border-b border-[#2a2d45]">{tooltipDate}</div>
           {series.map(s => (
             <div key={s.label} className="flex justify-between gap-4 text-xs mb-1">
               <span className="text-[#7e849e] flex items-center gap-1.5">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ background: s.color }} />{s.label}
+                <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.color }} />{s.label}
               </span>
               <span className="font-semibold text-[#dde1f0]">{s.values[tooltip.idx]?.toLocaleString()}</span>
             </div>
           ))}
+          {sortedPrices.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-[#2a2d45]">
+              {sortedPrices.map(([price, pd]) => (
+                <div key={price} className="flex items-center gap-1.5 text-[11px] mb-1">
+                  <span className="bg-[rgba(108,99,255,0.15)] text-[#6c63ff] px-1.5 py-px rounded font-semibold min-w-[44px] text-center">
+                    ${parseFloat(price).toFixed(2)}
+                  </span>
+                  <span className="font-semibold text-[#dde1f0] min-w-[20px]">{pd.orders}</span>
+                  <span className="text-[#3ecf8e]">自然{pd.organic}</span>
+                  {pd.paid > 0 && <span className="text-[#f5a623]">广告{pd.paid}</span>}
+                  {pd.refund > 0 && <span className="text-[#e85d75]">退{pd.refund}</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -19,20 +19,34 @@ async function fetchAll(table: string, select: string): Promise<any[]> {
 }
 
 export async function GET() {
-  const [products, dailyOrders, dailyPrices, creatorDaily, creatorCommission] = await Promise.all([
-    fetchAll('products',           '*'),
-    fetchAll('daily_orders',       '*'),
-    fetchAll('daily_prices',       '*'),
-    fetchAll('creator_daily',      '*'),
-    fetchAll('creator_commission', '*'),
+  const [products, dailyOrders, dailyPrices, creatorDaily, creatorCommission, creatorDailyPrices] = await Promise.all([
+    fetchAll('products',             '*'),
+    fetchAll('daily_orders',         '*'),
+    fetchAll('daily_prices',         '*'),
+    fetchAll('creator_daily',        '*'),
+    fetchAll('creator_commission',   '*'),
+    fetchAll('creator_daily_prices', '*'),
   ])
 
+  // Product daily prices map: pid__date -> { price -> detail }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const priceMap: Record<string, Record<string, any>> = {}
   for (const p of dailyPrices) {
     const key = `${p.product_id}__${p.date}`
     if (!priceMap[key]) priceMap[key] = {}
     priceMap[key][String(p.unit_price)] = {
+      orders: p.orders, units: p.units,
+      organic: p.organic, paid: p.paid, refund: p.refund ?? 0,
+    }
+  }
+
+  // Creator daily prices map: pid__date__creator__contentId -> { price -> detail }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const creatorPriceMap: Record<string, Record<string, any>> = {}
+  for (const p of creatorDailyPrices) {
+    const key = `${p.product_id}__${p.date}__${p.creator}__${p.content_id}`
+    if (!creatorPriceMap[key]) creatorPriceMap[key] = {}
+    creatorPriceMap[key][String(p.unit_price)] = {
       orders: p.orders, units: p.units,
       organic: p.organic, paid: p.paid, refund: p.refund ?? 0,
     }
@@ -45,5 +59,13 @@ export async function GET() {
     prices: priceMap[`${d.product_id}__${d.date}`] || {},
   }))
 
-  return NextResponse.json({ products, daily, creatorDaily, creatorCommission })
+  // Attach prices to creator_daily entries
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const creatorDailyWithPrices = creatorDaily.map((d: any) => ({
+    ...d,
+    refund_orders: d.refund_orders ?? 0,
+    prices: creatorPriceMap[`${d.product_id}__${d.date}__${d.creator}__${d.content_id}`] || {},
+  }))
+
+  return NextResponse.json({ products, daily, creatorDaily: creatorDailyWithPrices, creatorCommission })
 }

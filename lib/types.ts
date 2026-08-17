@@ -9,6 +9,7 @@ export type DailyEntry = {
 export type CreatorDaily = {
   product_id: string; date: string; creator: string; channel: string; content_id: string
   orders: number; organic_orders: number; paid_orders: number; refund_orders: number
+  prices: Record<string, PriceDetail>  // per-price breakdown for this creator+content+date
 }
 export type CreatorCommission = {
   product_id: string; date: string; creator: string

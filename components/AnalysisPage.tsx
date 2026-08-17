@@ -198,7 +198,15 @@ export default function AnalysisPage({ products, daily, onDataRefresh }: {
 
   const agg = currentPid ? getAggregate() : null
 
-  return (
+  function buildPriceMap() {
+    const map: Record<string, Record<string, { orders: number; units: number; organic: number; paid: number; refund: number }>> = {}
+    for (const e of filteredDaily) {
+      if (e.prices) map[e.date] = e.prices
+    }
+    return map
+  }
+
+    return (
     <div className="flex" style={{ height: 'calc(100vh - 52px)' }}>
 
       {showPwModal && (

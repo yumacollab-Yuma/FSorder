@@ -157,7 +157,42 @@ export default function CreatorAnalysisPage({
     return [{ label: '订单', color: '#6c63ff', values: trendDates.map(d => byDate[d] || 0) }]
   }
 
-  return (
+  // Aggregate prices across filtered entries for main trend tooltip
+  function buildCreatorPriceMap() {
+    const map: Record<string, Record<string, { orders: number; units: number; organic: number; paid: number; refund: number }>> = {}
+    for (const e of filtered) {
+      if (!e.prices) continue
+      if (!map[e.date]) map[e.date] = {}
+      for (const [price, pd] of Object.entries(e.prices)) {
+        if (!map[e.date][price]) map[e.date][price] = { orders: 0, units: 0, organic: 0, paid: 0, refund: 0 }
+        map[e.date][price].orders  += pd.orders
+        map[e.date][price].units   += pd.units
+        map[e.date][price].organic += pd.organic
+        map[e.date][price].paid    += pd.paid
+        map[e.date][price].refund  += pd.refund
+      }
+    }
+    return map
+  }
+
+  function buildContentPriceMap(contentId: string) {
+    const map: Record<string, Record<string, { orders: number; units: number; organic: number; paid: number; refund: number }>> = {}
+    for (const e of filtered) {
+      if (e.content_id !== contentId || !e.prices) continue
+      if (!map[e.date]) map[e.date] = {}
+      for (const [price, pd] of Object.entries(e.prices)) {
+        if (!map[e.date][price]) map[e.date][price] = { orders: 0, units: 0, organic: 0, paid: 0, refund: 0 }
+        map[e.date][price].orders  += pd.orders
+        map[e.date][price].units   += pd.units
+        map[e.date][price].organic += pd.organic
+        map[e.date][price].paid    += pd.paid
+        map[e.date][price].refund  += pd.refund
+      }
+    }
+    return map
+  }
+
+    return (
     <div className="flex" style={{ height: 'calc(100vh - 52px)' }}>
       {/* Creator sidebar */}
       <div className="w-52 min-w-[208px] bg-[#13151f] border-r border-[#2a2d45] flex flex-col overflow-hidden">
@@ -263,7 +298,7 @@ export default function CreatorAnalysisPage({
                   ))}
                 </div>
               </div>
-              <TrendChart dates={trendDates} series={buildTrendSeries()} />
+              <TrendChart dates={trendDates} series={buildTrendSeries()} prices={buildCreatorPriceMap()} />
             </div>
 
             {/* Per-product breakdown with content analysis */}
@@ -308,7 +343,7 @@ export default function CreatorAnalysisPage({
                             </div>
                             {/* Content trend */}
                             <div className="p-4">
-                              <TrendChart dates={trendDates} series={buildContentTrend(c.contentId)} height={120} />
+                              <TrendChart dates={trendDates} series={buildContentTrend(c.contentId)} height={120} prices={buildContentPriceMap(c.contentId)} />
                             </div>
                           </div>
                         ))}
