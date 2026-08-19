@@ -2,7 +2,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useAuth } from './AuthContext'
 import type { Product, DailyEntry, PriceDetail } from '@/lib/types'
-import { displayName, pct, medalEmoji, medalLabel } from '@/lib/utils'
+import { displayName, pct, medalEmoji, medalLabel, applyQuickRange } from '@/lib/utils'
+import TrendChart from './TrendChart'
+import PriceTable from './PriceTable'
 
 export default function AnalysisPage({ products, daily, onDataRefresh }: {
   products: Product[]
@@ -312,41 +314,10 @@ export default function AnalysisPage({ products, daily, onDataRefresh }: {
 
             {/* Price table */}
             {agg && Object.keys(agg.prices).length > 0 && (
-              <div className="bg-[#13151f] border border-[#2a2d45] rounded-xl overflow-hidden mb-6">
-                <div className="px-4 py-2.5 bg-[#1c1f2e] text-[11px] font-semibold text-[#444870] uppercase tracking-wider">价格档明细</div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-[#1c1f2e]">
-                      {['价格','订单','件数','自然流','广告流','退货','退货率','占比'].map(h => (
-                        <th key={h} className="px-4 py-2 text-left text-[11px] text-[#444870] font-semibold uppercase tracking-wider whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(agg.prices).sort((a,b)=>b[1].orders-a[1].orders).map(([price, pd]) => {
-                      const sharePct  = pct(pd.orders, agg.totalOrders)
-                      const orgPct    = pct(pd.organic, pd.orders)
-                      const paidPct   = pct(pd.paid, pd.orders)
-                      const refundPct = pct(pd.refund ?? 0, pd.orders)
-                      return (
-                        <tr key={price} className="border-t border-[#2a2d45] hover:bg-[rgba(255,255,255,0.02)]">
-                          <td className="px-4 py-2"><span className="bg-[rgba(108,99,255,0.15)] text-[#6c63ff] px-1.5 py-0.5 rounded text-[11px] font-semibold">${parseFloat(price).toFixed(2)}</span></td>
-                          <td className="px-4 py-2 tabular-nums">{pd.orders.toLocaleString()}</td>
-                          <td className="px-4 py-2 tabular-nums">{pd.units.toLocaleString()}</td>
-                          <td className="px-4 py-2 tabular-nums text-[#3ecf8e]">{pd.organic.toLocaleString()} <span className="text-[11px] text-[#444870]">{orgPct}%</span></td>
-                          <td className="px-4 py-2 tabular-nums text-[#f5a623]">{pd.paid.toLocaleString()} <span className="text-[11px] text-[#444870]">{paidPct}%</span></td>
-                          <td className="px-4 py-2 tabular-nums text-[#e85d75]">{(pd.refund ?? 0).toLocaleString()}</td>
-                          <td className="px-4 py-2 tabular-nums text-[11px] text-[#e85d75]">{refundPct}%</td>
-                          <td className="px-4 py-2 tabular-nums text-[11px] text-[#444870]">{sharePct}%</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <PriceTable prices={agg.prices} totalOrders={agg.totalOrders} />
+          )}
 
-            {/* Chart */}
+          {/* Chart */}
             <div className="mb-8">
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-[11px] font-semibold text-[#444870] uppercase tracking-widest">每日订单趋势</span>

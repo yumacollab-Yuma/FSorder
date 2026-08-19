@@ -54,9 +54,8 @@ export default function OverviewPage({ products, daily }: { products: Product[];
   const allDates = [...new Set(daily.map(d => d.date))].sort()
   const minDate = allDates[0] || '', maxDate = allDates[allDates.length - 1] || ''
 
-  function quickRange(t: string) {
+  function quickRange(n: number | null) {
     const last = allDates[allDates.length - 1]; if (!last) return
-    const n = { '7d': 7, '14d': 14, '30d': 30 }[t]
     if (n) { setRangeStart(allDates[Math.max(0, allDates.length - n)]); setRangeEnd(last) }
     else   { setRangeStart(allDates[0]); setRangeEnd(last) }
   }
@@ -108,7 +107,7 @@ export default function OverviewPage({ products, daily }: { products: Product[];
           {mode === 'single' ? (
             <input type="date" value={singleDate} min={minDate} max={maxDate} onChange={e=>setSingleDate(e.target.value)} className="bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-3 py-1.5 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]" style={{colorScheme:'dark'}} />
           ) : (<>
-            {['7d','14d','30d','all'].map(t => <button key={t} onClick={() => quickRange(t)} className="px-2.5 py-1.5 text-xs rounded-lg border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">{t==='all'?'全部':`近${t.replace('d','天')}`}</button>)}
+            {([[7,'7d'],[14,'14d'],[30,'30d'],[null,'all']] as [number|null,string][]).map(([n,t]) => <button key={t} onClick={() => quickRange(n)} className="px-2.5 py-1.5 text-xs rounded-lg border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">{t==='all'?'全部':`近${t.replace('d','天')}`}</button>)}
             <div className="flex items-center gap-2 text-xs text-[#444870]">
               <span>从</span><input type="date" value={rangeStart} min={minDate} max={maxDate} onChange={e=>setRangeStart(e.target.value)} className="bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-2 py-1.5 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]" style={{colorScheme:'dark'}} />
               <span>至</span><input type="date" value={rangeEnd} min={minDate} max={maxDate} onChange={e=>setRangeEnd(e.target.value)} className="bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-2 py-1.5 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]" style={{colorScheme:'dark'}} />

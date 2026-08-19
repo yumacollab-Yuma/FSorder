@@ -1,7 +1,7 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import type { Product, CreatorDaily, CreatorCommission } from '@/lib/types'
-import { displayName, pct, medalEmoji, medalLabel } from '@/lib/utils'
+import { displayName, pct, medalEmoji, medalLabel, applyQuickRange } from '@/lib/utils'
 
 export default function ProductCreatorPage({
   products, creatorDaily, creatorCommission, onNavigateToCreator,
@@ -17,6 +17,15 @@ export default function ProductCreatorPage({
   const [search, setSearch] = useState('')
   const [commTab, setCommTab] = useState<'organic' | 'paid'>('organic')
 
+  // Exclude-sampled filter state
+  const [excludeInput, setExcludeInput] = useState('')        // what user types
+  const [excludeProduct, setExcludeProduct] = useState<Product | null>(null)  // confirmed product
+  const [sampledCreators, setSampledCreators] = useState<Set<string>>(new Set())
+  const [excludeLoading, setExcludeLoading] = useState(false)
+  const [excludeError, setExcludeError] = useState('')
+  const [showDropdown, setShowDropdown] = useState(false)
+  const excludeRef = useRef<HTMLDivElement>(null)
+
   // Init first product + full date range
   useEffect(() => {
     if (products.length && !selectedPid) {
@@ -26,6 +35,17 @@ export default function ProductCreatorPage({
       if (dates.length) { setRangeStart(dates[0]); setRangeEnd(dates[dates.length - 1]) }
     }
   }, [products, creatorDaily, selectedPid])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (excludeRef.current && !excludeRef.current.contains(e.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   function selectProduct(pid: string) {
     setSelectedPid(pid)
@@ -38,12 +58,39 @@ export default function ProductCreatorPage({
   const minDate = allDates[0] || ''
   const maxDate = allDates[allDates.length - 1] || ''
 
-  function quickRange(t: string) {
-    const last = allDates[allDates.length - 1]; if (!last) return
-    if (t === 'all') { setRangeStart(allDates[0]); setRangeEnd(last) }
-    if (t === '7d')  { setRangeStart(allDates[Math.max(0, allDates.length - 7)]);  setRangeEnd(last) }
-    if (t === '14d') { setRangeStart(allDates[Math.max(0, allDates.length - 14)]); setRangeEnd(last) }
-    if (t === '30d') { setRangeStart(allDates[Math.max(0, allDates.length - 30)]); setRangeEnd(last) }
+  function quickRange(t: string) { applyQuickRange(t, allDates, setRangeStart, setRangeEnd) }
+
+
+  // Dropdown options: filter products by input
+  const dropdownOptions = products.filter(p => {
+    const dn = p.internal_name || p.full_name
+    return dn && dn.toLowerCase().includes(excludeInput.toLowerCase())
+  }).slice(0, 10)
+
+  async function selectExcludeProduct(p: Product) {
+    setExcludeProduct(p)
+    setExcludeInput(p.internal_name || p.full_name)
+    setShowDropdown(false)
+    setExcludeError('')
+    setExcludeLoading(true)
+    setSampledCreators(new Set())
+    try {
+      const res = await fetch(`/api/modaiq-samples?product=${encodeURIComponent(p.internal_name || p.full_name)}`)
+      const d = await res.json()
+      if (d.error) { setExcludeError(d.error) }
+      else { setSampledCreators(new Set(d.sampledCreators)) }
+    } catch {
+      setExcludeError('查询失败，请重试')
+    } finally {
+      setExcludeLoading(false)
+    }
+  }
+
+  function clearExclude() {
+    setExcludeInput('')
+    setExcludeProduct(null)
+    setSampledCreators(new Set())
+    setExcludeError('')
   }
 
   // Filtered creator_daily entries
@@ -65,16 +112,18 @@ export default function ProductCreatorPage({
   const creatorList = Object.entries(creatorMap)
     .map(([creator, v]) => ({ creator, ...v, channels: [...v.channels].join('/') }))
     .filter(c => !search || c.creator.toLowerCase().includes(search.toLowerCase()))
+    .filter(c => sampledCreators.size === 0 || !sampledCreators.has(c.creator))
     .sort((a, b) => b.orders - a.orders)
 
   const totalOrders = creatorList.reduce((s, c) => s + c.orders, 0)
+  const excludedCount = sampledCreators.size > 0
+    ? Object.keys(creatorMap).filter(c => sampledCreators.has(c)).length
+    : 0
 
-  // Commission distribution for selected product + date range
+  // Commission distribution
   const filteredComm = creatorCommission.filter(c =>
     c.product_id === selectedPid && c.date >= rangeStart && c.date <= rangeEnd && c.commission_type === commTab
   )
-
-  // By rate: { rate -> { creators: Set, orders: number } }
   const rateMap: Record<string, { creators: Set<string>; orders: number }> = {}
   for (const c of filteredComm) {
     if (!rateMap[c.commission_rate]) rateMap[c.commission_rate] = { creators: new Set(), orders: 0 }
@@ -85,7 +134,6 @@ export default function ProductCreatorPage({
     .map(([rate, v]) => ({ rate, creatorCount: v.creators.size, orders: v.orders }))
     .sort((a, b) => parseFloat(b.rate) - parseFloat(a.rate))
 
-  // Weighted avg commission rate
   const totalCommOrders = rateDist.reduce((s, r) => s + r.orders, 0)
   const weightedRate = totalCommOrders
     ? rateDist.reduce((s, r) => s + parseFloat(r.rate) * r.orders, 0) / totalCommOrders
@@ -131,7 +179,7 @@ export default function ProductCreatorPage({
             </div>
 
             {/* Time filter */}
-            <div className="flex items-center gap-2 flex-wrap mb-6 p-3 bg-[#13151f] border border-[#2a2d45] rounded-xl">
+            <div className="flex items-center gap-2 flex-wrap mb-4 p-3 bg-[#13151f] border border-[#2a2d45] rounded-xl">
               {['7d','14d','30d','all'].map(t => (
                 <button key={t} onClick={() => quickRange(t)}
                   className="px-2.5 py-1 text-xs rounded-md border border-[#2a2d45] text-[#7e849e] bg-[#1c1f2e] hover:border-[#6c63ff] hover:text-white transition-all">
@@ -147,6 +195,47 @@ export default function ProductCreatorPage({
                   className="bg-[#1c1f2e] border border-[#2a2d45] rounded-md px-2 py-1 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff]" style={{colorScheme:'dark'}} />
               </div>
               <div className="ml-auto text-[11px] text-[#444870]">{allDates.filter(d => d >= rangeStart && d <= rangeEnd).length} 天</div>
+            </div>
+
+            {/* Exclude sampled filter */}
+            <div className="flex items-center gap-3 mb-6 p-3 bg-[#13151f] border border-[#2a2d45] rounded-xl">
+              <span className="text-[11px] text-[#444870] whitespace-nowrap">排除已寄样</span>
+              <div className="relative flex-1 max-w-[240px]" ref={excludeRef}>
+                <input
+                  value={excludeInput}
+                  onChange={e => { setExcludeInput(e.target.value); setShowDropdown(true); if (!e.target.value) clearExclude() }}
+                  onFocus={() => setShowDropdown(true)}
+                  placeholder="输入产品款号..."
+                  className="w-full bg-[#1c1f2e] border border-[#2a2d45] rounded-lg px-3 py-1.5 text-xs text-[#dde1f0] outline-none focus:border-[#6c63ff] placeholder-[#444870]"
+                />
+                {/* Dropdown */}
+                {showDropdown && excludeInput && dropdownOptions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-[#1c1f2e] border border-[#2a2d45] rounded-lg overflow-hidden z-50 shadow-xl">
+                    {dropdownOptions.map(p => (
+                      <div key={p.id} onClick={() => selectExcludeProduct(p)}
+                        className="px-3 py-2 text-xs text-[#dde1f0] hover:bg-[#2a2d45] cursor-pointer flex items-center gap-2">
+                        <span className="font-semibold">{p.internal_name}</span>
+                        {p.full_name && <span className="text-[#444870] truncate">{p.full_name.substring(0, 30)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Status indicators */}
+              {excludeLoading && <span className="text-[11px] text-[#444870]">查询中...</span>}
+              {excludeError && <span className="text-[11px] text-[#e85d75]">{excludeError}</span>}
+              {excludeProduct && !excludeLoading && sampledCreators.size > 0 && (
+                <span className="text-[11px] text-[#f5a623]">
+                  已排除 {excludedCount} 个寄过 <b>{excludeProduct.internal_name}</b> 样的达人
+                </span>
+              )}
+              {excludeProduct && !excludeLoading && sampledCreators.size === 0 && !excludeError && (
+                <span className="text-[11px] text-[#3ecf8e]">ModaIQ 无该产品寄样记录</span>
+              )}
+              {excludeProduct && (
+                <button onClick={clearExclude} className="text-[11px] text-[#444870] hover:text-[#e85d75] transition-all ml-auto">清除</button>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-6 mb-6">
@@ -202,6 +291,7 @@ export default function ProductCreatorPage({
                 {creatorList.length > 0 && (
                   <div className="px-4 py-2.5 border-t border-[#2a2d45] bg-[#1c1f2e] text-xs text-[#444870]">
                     共 {creatorList.length} 个达人 · 合计 {totalOrders.toLocaleString()} 单
+                    {excludedCount > 0 && <span className="ml-2 text-[#f5a623]">（已排除 {excludedCount} 个）</span>}
                   </div>
                 )}
               </div>
@@ -219,8 +309,6 @@ export default function ProductCreatorPage({
                     ))}
                   </div>
                 </div>
-
-                {/* Weighted rate KPI */}
                 <div className="px-4 py-4 border-b border-[#2a2d45] flex items-center gap-6">
                   <div>
                     <div className="text-[11px] text-[#444870] mb-1">加权平均{commTab === 'organic' ? '自然流' : '广告'}佣金率</div>
@@ -230,7 +318,6 @@ export default function ProductCreatorPage({
                     基于 {totalCommOrders.toLocaleString()} 笔成交<br />加权计算
                   </div>
                 </div>
-
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-[#1c1f2e] border-t border-[#2a2d45]">

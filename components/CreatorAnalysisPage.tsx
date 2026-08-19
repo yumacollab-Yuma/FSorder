@@ -1,8 +1,9 @@
 'use client'
 import { useState } from 'react'
 import type { Product, CreatorDaily } from '@/lib/types'
-import { displayName, pct, medalEmoji, medalLabel } from '@/lib/utils'
+import { displayName, pct, medalEmoji, medalLabel, applyQuickRange } from '@/lib/utils'
 import TrendChart from './TrendChart'
+import ContentItem from './ContentItem'
 
 const LINE_COLORS = ['#6c63ff','#3ecf8e','#f5a623','#e85d75','#38bdf8','#a78bfa','#fb923c','#34d399']
 
@@ -73,13 +74,8 @@ export default function CreatorAnalysisPage({
   const minDate = allDates[0] || ''
   const maxDate = allDates[allDates.length - 1] || ''
 
-  function quickRange(t: string) {
-    const last = allDates[allDates.length - 1]; if (!last) return
-    if (t === 'all') { setRangeStart(allDates[0]); setRangeEnd(last) }
-    if (t === '7d')  { setRangeStart(allDates[Math.max(0, allDates.length - 7)]);  setRangeEnd(last) }
-    if (t === '14d') { setRangeStart(allDates[Math.max(0, allDates.length - 14)]); setRangeEnd(last) }
-    if (t === '30d') { setRangeStart(allDates[Math.max(0, allDates.length - 30)]); setRangeEnd(last) }
-  }
+  function quickRange(t: string) { applyQuickRange(t, allDates, setRangeStart, setRangeEnd) }
+
 
   const filtered = creatorDaily.filter(d =>
     d.creator === selectedCreator &&
@@ -327,26 +323,15 @@ export default function CreatorAnalysisPage({
                     <div className="p-4">
                       <div className="flex flex-col gap-4">
                         {contentList.map((c, ci) => (
-                          <div key={c.contentId} className="border border-[#2a2d45] rounded-xl overflow-hidden">
-                            {/* Content header */}
-                            <div className="px-4 py-2.5 bg-[#1c1f2e] flex items-center gap-3">
-                              <span className="text-[11px] font-bold text-[#6c63ff] bg-[rgba(108,99,255,0.15)] px-2 py-0.5 rounded">
-                                视频{ci + 1}
-                              </span>
-                              <span className="text-[11px] text-[#444870] font-mono truncate max-w-[200px]">{c.contentId}</span>
-                              <div className="ml-auto flex items-center gap-4 text-xs">
-                                <span className="font-semibold text-[#dde1f0]">{c.orders} 单</span>
-                                <span className="text-[#3ecf8e]">自然 {pct(c.organic, c.orders)}%</span>
-                                <span className="text-[#f5a623]">广告 {pct(c.paid, c.orders)}%</span>
-                                {c.refund > 0 && <span className="text-[#e85d75]">退货 {pct(c.refund, c.orders)}%</span>}
-                              </div>
-                            </div>
-                            {/* Content trend */}
-                            <div className="p-4">
-                              <TrendChart dates={trendDates} series={buildContentTrend(c.contentId)} height={120} prices={buildContentPriceMap(c.contentId)} />
-                            </div>
-                          </div>
-                        ))}
+                        <ContentItem
+                          key={c.contentId}
+                          content={c}
+                          index={ci}
+                          trendDates={trendDates}
+                          series={buildContentTrend(c.contentId)}
+                          prices={buildContentPriceMap(c.contentId)}
+                        />
+                      ))}
                       </div>
                     </div>
                   )}
