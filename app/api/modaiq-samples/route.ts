@@ -25,7 +25,11 @@ export async function GET(req: NextRequest) {
   }
 
   const sampledCreators: string[] = (data || [])
-    .map((row: { data: Record<string, unknown> }) => row.data?.influencerId)
+    .map((row: { data: unknown }) => {
+      // data field may come back as string or object depending on Supabase client version
+      const d = typeof row.data === 'string' ? JSON.parse(row.data) : row.data
+      return d?.influencerId
+    })
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
 
   return NextResponse.json({ sampledCreators: [...new Set(sampledCreators)] })
